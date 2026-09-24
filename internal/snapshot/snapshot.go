@@ -115,9 +115,15 @@ func (c *Collector) build(metrics map[string]float64, slot llamaserver.Slot, ser
 	if c.Log != nil {
 		split = c.Log.Latest()
 	}
+	// Devices by name for the local one and by endpoint for the RPC ones: llama.cpp numbers RPC devices
+	// by the nodes that registered, so a node that was skipped shifts the numbering.
 	byDev := map[string]loadlog.Device{}
+	byEndpoint := map[string]loadlog.Device{}
 	for _, d := range split.Devices {
 		byDev[d.Name] = d
+		if strings.HasPrefix(d.Name, "RPC") {
+			byEndpoint[d.Endpoint] = d
+		}
 	}
 	s := Snapshot{T: float64(now.UnixNano()) / 1e9}
 	s.Model = Model{Path: c.props.ModelPath, Name: strings.TrimSuffix(filepath.Base(c.props.ModelPath), ".gguf"), NCtx: c.props.NCtx, Build: c.props.Build, Structure: split.Info}
@@ -126,8 +132,8 @@ func (c *Collector) build(metrics map[string]float64, slot llamaserver.Slot, ser
 	if d, ok := byDev["MTL0"]; ok {
 		ordered = append(ordered, d)
 	}
-	for i := range c.Args.RPC {
-		if d, ok := byDev["RPC"+itoa(i)]; ok {
+	for _, addr := range c.Args.RPC {
+		if d, ok := byEndpoint[addr]; ok {
 			ordered = append(ordered, d)
 		}
 	}
@@ -179,12 +185,18 @@ func (c *Collector) build(metrics map[string]float64, slot llamaserver.Slot, ser
 	for i, addr := range c.Args.RPC {
 		dev := "RPC" + itoa(i)
 		n := Node{ID: addr, Kind: "rpc", Device: dev, Label: dev}
-		if name, ok := c.Names[hostOf(addr)]; ok {
-			n.Label = name
-		}
-		if d, ok := byDev[dev]; ok {
+		if d, ok := byEndpoint[addr]; ok {
+			dev = d.Name
+			n.Device = dev
 			n.MemTotal, n.MemModel, n.MemContext, n.MemCompute = d.Total, d.Model, d.Context, d.Compute
 			n.Layers = layersOf[dev]
+		} else {
+			n.Stale = true // listed on the command line, absent from the load: the server skipped it
+		}
+		if name, ok := c.Names[hostOf(addr)]; ok {
+			n.Label = name
+		} else if n.Label == dev {
+			n.Label = n.Device
 		}
 		s.Nodes = append(s.Nodes, n)
 		s.Totals.MemHeld += n.MemModel + n.MemContext + n.MemCompute
