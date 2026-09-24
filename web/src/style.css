@@ -1,0 +1,23 @@
+:root { color-scheme: dark; --fg: #d7dbe3; --dim: #7d8594; --bg: #0a0c11; --panel: #12161ecc; --line: #263041; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); font: 13px/1.4 -apple-system, "SF Pro Text", Inter, system-ui, sans-serif; overflow: hidden; }
+#stage, #stage canvas { position: fixed; inset: 0; display: block; touch-action: none; user-select: none; -webkit-user-select: none; }
+body.stale #stage { filter: grayscale(0.8) brightness(0.6); }
+#labels { position: fixed; inset: 0; pointer-events: none; }
+.label { position: absolute; transform: translate(-50%, 0); min-width: 9em; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; backdrop-filter: blur(6px); }
+.label .name { color: var(--fg); font-size: 12px; margin-bottom: 2px; }
+.label .name em { color: var(--dim); font-style: normal; letter-spacing: .08em; text-transform: uppercase; font-size: 10px; margin-left: .5em; }
+.label div span { color: var(--dim); margin-right: .6em; }
+#panel { position: fixed; top: 16px; right: 16px; width: min(300px, calc(100vw - 32px)); max-height: calc(100% - 100px); overflow: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; backdrop-filter: blur(8px); }
+#panel .close { position: absolute; top: 8px; right: 10px; width: 32px; height: 32px; border: 0; border-radius: 8px; background: transparent; color: var(--dim); font-size: 22px; line-height: 1; cursor: pointer; }
+#panel .close:active { background: var(--line); }
+#panel h2 { margin: 0 0 8px; padding-right: 32px; font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--dim); }
+#panel h2 span { display: block; color: var(--fg); text-transform: none; letter-spacing: 0; font-weight: 500; }
+#panel h2 small { display: block; color: var(--dim); text-transform: none; letter-spacing: 0; font-weight: 400; font-size: 11px; }
+#panel label { display: grid; grid-template-columns: 20px 1fr auto; gap: 8px; align-items: center; padding: 8px 0; border-top: 1px solid var(--line); cursor: pointer; }
+#panel label b { font-weight: 500; color: var(--dim); }
+#panel label span { font-variant-numeric: tabular-nums; }
+#panel .hint { color: var(--dim); font-size: 11px; margin: 8px 0 0; }
+#strip { position: fixed; left: 0; right: 0; bottom: 0; display: flex; flex-wrap: wrap; gap: 10px 28px; padding: 12px 20px; background: linear-gradient(transparent, #0a0c11 40%); font-variant-numeric: tabular-nums; }
+#strip div { white-space: nowrap; }
+#strip div span { display: block; color: var(--dim); font-size: 11px; text-transform: uppercase; letter-spacing: .08em; }
+#status { position: fixed; top: 12px; left: 16px; color: #ffb36b; }

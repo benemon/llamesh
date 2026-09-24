@@ -1,0 +1,1 @@
+/Users/user/.local/llama.cpp-b10566/llama-b10566/llama-server -m /Users/user/.cache/huggingface/hub/models--unsloth--gpt-oss-20b-GGUF/snapshots/d449b42d93e1c2c7bda5312f5c25c8fb91dfa9b4/gpt-oss-20b-F16.gguf --host 127.0.0.1 --port 8896 -c 8192 --parallel 1 --flash-attn on --jinja --rpc 10.0.0.2:50052 --tensor-split 1,1 -lv 4 --api-key REDACTED

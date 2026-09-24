@@ -1,0 +1,6 @@
+/llamesh
+web/node_modules/
+web/dist/*
+!web/dist/.gitkeep
+internal/web/dist/*
+!internal/web/dist/.gitkeep
