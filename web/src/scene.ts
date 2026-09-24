@@ -192,6 +192,7 @@ export class Scene {
   private frameCbs: (() => void)[] = [];
   private time = 0;
   private baseDist = 800;
+  private placed = false;
   blobs = new Map<string, Blob>();
   streams: Stream[] = [];
   onPick: (id: string) => void = () => {};
@@ -270,7 +271,8 @@ export class Scene {
     const total = gap * (list.length - 1);
     list.forEach((b, i) => b.group.position.set(-total / 2 + gap * i, 0, 0));
     this.baseDist = Math.max(600, total * 0.9 + gap);
-    if (!this.controls.target.lengthSq()) { this.camera.position.set(0, this.baseDist * 0.42, this.baseDist * 0.9); this.controls.saveState(); }
+    // The starting view is set once, on the first layout; snapshots arrive every second and must not move it.
+    if (!this.placed) { this.placed = true; this.camera.position.set(0, this.baseDist * 0.42, this.baseDist * 0.9); this.controls.saveState(); }
   }
 
   apply(s: Snapshot) {
