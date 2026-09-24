@@ -1,281 +1,296 @@
-import { Application, Container, Graphics, Particle, ParticleContainer, Sprite, Texture } from "pixi.js";
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import type { Link, Node, Snapshot } from "./types";
 
-const PARTICLE_BYTES = 4 * 1048576; // one particle per 4 MiB held
+const PARTICLE_BYTES = 4 * 1048576; // one grain per 4 MiB held
 const PALETTE = { local: 0x7fb7ff, rpc: 0xffb36b, out: 0x7fb7ff, in: 0xffb36b };
 
-// Particle textures are generated at the renderer's resolution so they stay crisp on high-density screens.
-function dot(app: Application, radius: number): Texture {
-  const g = new Graphics().circle(radius, radius, radius).fill({ color: 0xffffff });
-  return app.renderer.generateTexture({ target: g, resolution: app.renderer.resolution });
-}
-
-// A soft radial glow drawn with Canvas 2D; Graphics has no gradient fill that fades to transparent.
-function glow(size: number, resolution: number): Texture {
+// A soft round sprite for every grain, drawn with Canvas 2D at the device resolution.
+function grainTexture(): THREE.Texture {
+  const size = 64;
   const c = document.createElement("canvas");
-  c.width = c.height = size * resolution;
-  size *= resolution;
+  c.width = c.height = size;
   const ctx = c.getContext("2d")!;
-  const grad = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
-  grad.addColorStop(0, "rgba(255,255,255,0.9)");
-  grad.addColorStop(0.35, "rgba(255,255,255,0.25)");
-  grad.addColorStop(1, "rgba(255,255,255,0)");
-  ctx.fillStyle = grad;
+  const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+  g.addColorStop(0, "rgba(255,255,255,1)");
+  g.addColorStop(0.5, "rgba(255,255,255,0.8)");
+  g.addColorStop(1, "rgba(255,255,255,0)");
+  ctx.fillStyle = g;
   ctx.fillRect(0, 0, size, size);
-  return Texture.from({ resource: c, resolution });
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
 }
 
-// A swarm of particles orbiting a centre. Count follows the memory the node holds; the swarm tightens and
-// brightens while the node is working and drifts loosely when idle.
-export class Blob {
-  readonly container = new Container();
-  readonly id: string;
-  // A ParticleContainer draws tens of thousands of points in one call; only position and alpha change per frame.
-  private swarm = new ParticleContainer({ dynamicProperties: { position: true, alpha: true, scale: false, rotation: false, color: false } });
-  private core: Sprite;
-  private parts: { p: Particle; r: number; a: number; w: number; n: number; layer: number }[] = [];
-  private core2 = new ParticleContainer({ dynamicProperties: { position: true, alpha: true, scale: false, rotation: false, color: false } });
-  private coreParts: { p: Particle; r: number; a: number; w: number }[] = [];
-  private radius = 60;
-  layers: [number, number] | null = null; // this node's layer range
-  nLayer = 0;                              // the model's layer count
-  ctxFill = 0;                             // 0..1, context in use
-  zoom = 1;                                // stage scale, set by the scene each frame
-  get screenRadius() { return this.radius; }
-  activity = 0;          // target from the latest snapshot
-  private shown = 0;     // smoothed value the drawing uses
-  x = 0;
-  y = 0;
+function glowTexture(): THREE.Texture {
+  const size = 256;
+  const c = document.createElement("canvas");
+  c.width = c.height = size;
+  const ctx = c.getContext("2d")!;
+  const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+  g.addColorStop(0, "rgba(255,255,255,0.7)");
+  g.addColorStop(0.4, "rgba(255,255,255,0.18)");
+  g.addColorStop(1, "rgba(255,255,255,0)");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, size, size);
+  return new THREE.CanvasTexture(c);
+}
 
-  constructor(node: Node, tex: Texture, coreTex: Texture) {
+function points(tex: THREE.Texture, color: number, size: number, capacity: number): THREE.Points {
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(capacity * 3), 3));
+  const mat = new THREE.PointsMaterial({ map: tex, color, size, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true });
+  const p = new THREE.Points(geo, mat);
+  p.frustumCulled = false;
+  return p;
+}
+
+// A node is a stack of discs, one per transformer layer it holds, close enough to read as one body from
+// afar and as separate layers once the camera is among them. The context cache is a white core.
+export class Blob {
+  readonly group = new THREE.Group();
+  readonly id: string;
+  private grains: THREE.Points;
+  private core: THREE.Points;
+  private halo: THREE.Sprite;
+  private pick: THREE.Mesh;
+  private base: { r: number; a: number; w: number; y: number; layer: number }[] = [];
+  private coreBase: { r: number; theta: number; phi: number }[] = [];
+  radius = 60;
+  layers: [number, number] | null = null;
+  activity = 0;
+  ctxFill = 0;
+  private shown = 0;
+  private spin = 0;
+
+  constructor(node: Node, tex: THREE.Texture, glow: THREE.Texture) {
     this.id = node.id;
-    this.core = new Sprite(coreTex);
-    this.core.anchor.set(0.5);
-    this.core.tint = node.kind === "rpc" ? PALETTE.rpc : PALETTE.local;
-    this.core.alpha = 0.12;
-    this.core.blendMode = "add";
-    this.swarm.blendMode = "add";
-    this.core2.blendMode = "add";
-    this.container.addChild(this.core, this.swarm, this.core2);
-    this.container.eventMode = "static";
-    this.container.cursor = "pointer";
-    this.resize(node, tex);
+    const tint = node.kind === "rpc" ? PALETTE.rpc : PALETTE.local;
+    this.grains = points(tex, tint, 3.2, 30000);
+    this.core = points(tex, 0xffffff, 3.6, 4000);
+    this.halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: glow, color: tint, transparent: true, opacity: 0.35, blending: THREE.AdditiveBlending, depthWrite: false }));
+    this.pick = new THREE.Mesh(new THREE.SphereGeometry(1, 12, 12), new THREE.MeshBasicMaterial({ visible: false }));
+    this.pick.userData.id = node.id;
+    this.group.add(this.halo, this.grains, this.core, this.pick);
+    this.resize(node);
   }
 
-  resize(node: Node, tex: Texture) {
+  resize(node: Node) {
     const held = node.mem_model + node.mem_context + node.mem_compute;
-    const want = Math.max(400, Math.min(24000, Math.round(held / PARTICLE_BYTES)));
-    // Spread grows with the count so the grains keep their spacing: radius ~ sqrt(count).
+    const want = Math.max(400, Math.min(30000, Math.round(held / PARTICLE_BYTES)));
     this.radius = 60 + 110 * Math.sqrt(Math.max(held, 1) / (64 * 1073741824));
-    this.core.width = this.core.height = this.radius * 3.2;
-    const tint = node.kind === "rpc" ? PALETTE.rpc : PALETTE.local;
-    while (this.parts.length < want) {
-      const sc = 0.45 + Math.random() * 0.45;
-      const p = new Particle({ texture: tex, anchorX: 0.5, anchorY: 0.5, tint, scaleX: sc, scaleY: sc });
-      this.swarm.addParticle(p);
-      // flatter than gaussian: dense middle, but the grains stay spaced out to the edge
-      const r = Math.pow(Math.random(), 0.6);
-      this.parts.push({ p, r, a: Math.random() * Math.PI * 2, w: (0.03 + Math.random() * 0.12) * (Math.random() < 0.5 ? 1 : -1), n: Math.random() * 1000, layer: 0 });
-    }
-    while (this.parts.length > want) this.swarm.removeParticle(this.parts.pop()!.p);
-    // grains belong to layers in order: the first slice to the node's first layer, and so on
     const count = this.layers ? this.layers[1] - this.layers[0] + 1 : 1;
-    this.parts.forEach((q, i) => { q.layer = Math.min(count - 1, Math.floor(i * count / this.parts.length)); });
-    // the context core: one grain per 4 MiB of context memory, white, shown in proportion to use
-    const wantCore = Math.max(60, Math.min(3000, Math.round(node.mem_context / PARTICLE_BYTES)));
-    while (this.coreParts.length < wantCore) {
-      const p = new Particle({ texture: tex, anchorX: 0.5, anchorY: 0.5, tint: 0xffffff, scaleX: 0.6, scaleY: 0.6 });
-      this.core2.addParticle(p);
-      this.coreParts.push({ p, r: Math.sqrt(Math.random()), a: Math.random() * Math.PI * 2, w: (0.05 + Math.random() * 0.1) * (Math.random() < 0.5 ? 1 : -1) });
+    const spacing = (this.radius * 1.5) / count;
+    while (this.base.length < want) {
+      const i = this.base.length;
+      this.base.push({ r: Math.sqrt(Math.random()), a: Math.random() * Math.PI * 2, w: (0.02 + Math.random() * 0.06) * (Math.random() < 0.5 ? 1 : -1), y: (Math.random() - 0.5) * 0.35, layer: 0 });
+      void i;
     }
-    while (this.coreParts.length > wantCore) this.core2.removeParticle(this.coreParts.pop()!.p);
-    this.container.hitArea = { contains: (x: number, y: number) => x * x + y * y <= this.radius * this.radius * 1.2 };
+    this.base.length = want;
+    this.base.forEach((g, i) => { g.layer = Math.min(count - 1, Math.floor(i * count / want)); });
+    this.grains.geometry.setDrawRange(0, want);
+    const wantCore = Math.max(60, Math.min(4000, Math.round(node.mem_context / PARTICLE_BYTES)));
+    while (this.coreBase.length < wantCore) this.coreBase.push({ r: Math.cbrt(Math.random()), theta: Math.random() * Math.PI * 2, phi: Math.acos(2 * Math.random() - 1) });
+    this.coreBase.length = wantCore;
+    this.halo.scale.set(this.radius * 3.4, this.radius * 3.4, 1);
+    this.pick.scale.setScalar(this.radius * 1.1);
+    void spacing;
   }
 
   tick(dt: number, time: number) {
-    this.shown += (this.activity - this.shown) * Math.min(1, dt / 3); // eases over ~3 s: a breath, never a snap
+    this.shown += (this.activity - this.shown) * Math.min(1, dt / 3);
     const a = this.shown;
     const R = this.radius * (1 - 0.25 * a);
-    // Zooming past 1.6x resolves the swarm into rings, one per layer this node holds, innermost first.
-    const ring = Math.min(1, Math.max(0, (this.zoom - 1.6) / 0.8));
     const count = this.layers ? this.layers[1] - this.layers[0] + 1 : 1;
-    for (const q of this.parts) {
-      q.a += q.w * dt * (1 + a * 0.6);
-      const wob = Math.sin(time * 0.25 + q.n) * 0.06 + Math.sin(time * 0.6 + q.n * 1.7) * 0.03;
-      const rCloud = R * (q.r + wob);
-      const rRing = R * (0.42 + 0.58 * (q.layer + 0.5) / count + wob * 0.15);
-      const r = rCloud + (rRing - rCloud) * ring;
-      q.p.x = Math.cos(q.a) * r;
-      q.p.y = Math.sin(q.a) * r * 0.85;
-      // low per-grain alpha: with thousands overlapping, brightness comes from density and must not saturate
-      q.p.alpha = 0.12 + 0.2 * a + 0.05 * Math.sin(time * 0.8 + q.n);
+    const spacing = (R * 1.5) / count;
+    this.spin += dt * 0.05 * (1 + a * 0.6);
+    const pos = this.grains.geometry.getAttribute("position") as THREE.BufferAttribute;
+    const arr = pos.array as Float32Array;
+    const n = this.base.length;
+    for (let i = 0; i < n; i++) {
+      const g = this.base[i];
+      const ang = g.a + this.spin * (1 + 0.3 * g.w);
+      const wob = Math.sin(time * 0.25 + i) * 0.05;
+      const r = R * (g.r + wob);
+      arr[i * 3] = Math.cos(ang) * r;
+      arr[i * 3 + 1] = (g.layer - (count - 1) / 2) * spacing + g.y * spacing;
+      arr[i * 3 + 2] = Math.sin(ang) * r;
     }
-    this.swarm.update();
-    // the context core fills from the centre as the request grows
+    pos.needsUpdate = true;
+    (this.grains.material as THREE.PointsMaterial).opacity = 0.32 + 0.3 * a;
+    const cpos = this.core.geometry.getAttribute("position") as THREE.BufferAttribute;
+    const carr = cpos.array as Float32Array;
     const rc = R * 0.36 * Math.sqrt(Math.max(0.02, this.ctxFill));
-    const shown = Math.round(this.coreParts.length * Math.max(0.02, this.ctxFill));
-    this.coreParts.forEach((q, i) => {
-      q.a += q.w * dt;
-      const r = rc * q.r;
-      q.p.x = Math.cos(q.a) * r;
-      q.p.y = Math.sin(q.a) * r * 0.85;
-      q.p.alpha = i < shown ? 0.35 + 0.3 * a : 0;
-    });
-    this.core2.update();
-    this.core.alpha = 0.1 + 0.18 * a;
-    this.container.position.set(this.x, this.y);
+    const shown = Math.round(this.coreBase.length * Math.max(0.02, this.ctxFill));
+    for (let i = 0; i < shown; i++) {
+      const c = this.coreBase[i];
+      const r = rc * c.r;
+      const th = c.theta + this.spin * 0.5;
+      carr[i * 3] = r * Math.sin(c.phi) * Math.cos(th);
+      carr[i * 3 + 1] = r * Math.cos(c.phi);
+      carr[i * 3 + 2] = r * Math.sin(c.phi) * Math.sin(th);
+    }
+    cpos.needsUpdate = true;
+    this.core.geometry.setDrawRange(0, shown);
+    (this.halo.material as THREE.SpriteMaterial).opacity = 0.22 + 0.25 * a;
   }
 }
 
-// Particles travelling along a curve between two blobs, spawned at a rate set by bytes per second.
+// Grains travelling along an arc between two nodes: out above, in below, at a rate set by bytes per second.
 export class Stream {
-  readonly container = new Container();
-  private pool: { s: Sprite; t: number; up: boolean }[] = [];
+  readonly points: THREE.Points;
+  private pool: { t: number; up: boolean }[] = [];
   private acc = { out: 0, in: 0 };
   rateOut = 0;
   rateIn = 0;
-  constructor(private tex: Texture, readonly from: Blob, readonly to: Blob) {}
-
-  private spawn(up: boolean) {
-    const s = new Sprite(this.tex);
-    s.anchor.set(0.5);
-    s.blendMode = "add";
-    s.scale.set(1.2 + Math.random() * 0.8);
-    s.tint = up ? PALETTE.out : PALETTE.in;
-    this.container.addChild(s);
-    this.pool.push({ s, t: 0, up });
+  constructor(tex: THREE.Texture, readonly from: Blob, readonly to: Blob) {
+    this.points = points(tex, 0xffffff, 4.5, 2000);
+    (this.points.material as THREE.PointsMaterial).opacity = 0.9;
+    this.points.geometry.setAttribute("color", new THREE.BufferAttribute(new Float32Array(2000 * 3), 3));
+    (this.points.material as THREE.PointsMaterial).vertexColors = true;
   }
 
   tick(dt: number) {
-    // 1 MB/s ~ 30 particles/s over a 1.5 s flight: generation's 2 to 4 MB/s reads as a steady thread of ~100
-    // particles, a 45 MB/s prefill burst saturates at the cap and reads as a torrent
     this.acc.out += dt * Math.min(300, 15 * this.rateOut / 1e6);
     this.acc.in += dt * Math.min(300, 15 * this.rateIn / 1e6);
-    while (this.acc.out >= 1) { this.spawn(true); this.acc.out -= 1; }
-    while (this.acc.in >= 1) { this.spawn(false); this.acc.in -= 1; }
-    const ax = this.from.x, ay = this.from.y, bx = this.to.x, by = this.to.y;
-    const mx = (ax + bx) / 2, my = (ay + by) / 2;
+    while (this.acc.out >= 1 && this.pool.length < 2000) { this.pool.push({ t: 0, up: true }); this.acc.out -= 1; }
+    while (this.acc.in >= 1 && this.pool.length < 2000) { this.pool.push({ t: 0, up: false }); this.acc.in -= 1; }
+    const A = this.from.group.position, B = this.to.group.position;
+    const mid = A.clone().add(B).multiplyScalar(0.5);
+    const lift = Math.max(this.from.radius, this.to.radius) * 0.9;
+    const pos = this.points.geometry.getAttribute("position") as THREE.BufferAttribute;
+    const col = this.points.geometry.getAttribute("color") as THREE.BufferAttribute;
+    const parr = pos.array as Float32Array, carr = col.array as Float32Array;
+    const cOut = new THREE.Color(PALETTE.out), cIn = new THREE.Color(PALETTE.in);
+    let k = 0;
     for (let i = this.pool.length - 1; i >= 0; i--) {
       const p = this.pool[i];
       p.t += dt / 3;
-      if (p.t >= 1) { this.container.removeChild(p.s); p.s.destroy(); this.pool.splice(i, 1); continue; }
+      if (p.t >= 1) { this.pool.splice(i, 1); continue; }
       const u = p.up ? p.t : 1 - p.t;
-      const bend = p.up ? -70 : 70;
-      const cx = mx, cy = my + bend;
-      const x = (1 - u) * (1 - u) * ax + 2 * (1 - u) * u * cx + u * u * bx;
-      const y = (1 - u) * (1 - u) * ay + 2 * (1 - u) * u * cy + u * u * by;
-      p.s.position.set(x + (Math.random() - 0.5) * 2, y + (Math.random() - 0.5) * 2);
-      p.s.alpha = Math.sin(p.t * Math.PI) * 0.9;
+      const cy = mid.y + (p.up ? lift : -lift);
+      const x = (1 - u) * (1 - u) * A.x + 2 * (1 - u) * u * mid.x + u * u * B.x;
+      const y = (1 - u) * (1 - u) * A.y + 2 * (1 - u) * u * cy + u * u * B.y;
+      const z = (1 - u) * (1 - u) * A.z + 2 * (1 - u) * u * mid.z + u * u * B.z + (p.up ? 1 : -1) * lift * 0.25 * Math.sin(u * Math.PI);
+      parr[k * 3] = x; parr[k * 3 + 1] = y; parr[k * 3 + 2] = z;
+      const c = p.up ? cOut : cIn;
+      const f = Math.sin(p.t * Math.PI);
+      carr[k * 3] = c.r * f; carr[k * 3 + 1] = c.g * f; carr[k * 3 + 2] = c.b * f;
+      k++;
     }
+    pos.needsUpdate = true; col.needsUpdate = true;
+    this.points.geometry.setDrawRange(0, k);
   }
 }
 
 export class Scene {
-  readonly app = new Application();
+  readonly canvas = document.createElement("canvas");
+  private renderer!: THREE.WebGLRenderer;
+  private scene = new THREE.Scene();
+  private camera!: THREE.PerspectiveCamera;
+  private controls!: OrbitControls;
+  private tex = grainTexture();
+  private glow = glowTexture();
+  private frameCbs: (() => void)[] = [];
+  private time = 0;
+  private baseDist = 800;
   blobs = new Map<string, Blob>();
   streams: Stream[] = [];
-  private tex!: Texture;
-  private coreTex!: Texture;
-  private time = 0;
   onPick: (id: string) => void = () => {};
+  dragged = false;
 
   async init(el: HTMLElement) {
-    // WebGL, not WebGPU: the auto-detected WebGPU path stalled in Chrome 141 on macOS with no error surfaced.
-    // Full device resolution (phones are 3x); the particle count is small enough that fill rate is not a concern.
-    await this.app.init({ preference: "webgl", resizeTo: window, autoDensity: true, background: 0x0a0c11, antialias: true, resolution: Math.min(3, window.devicePixelRatio || 1) });
-    el.appendChild(this.app.canvas);
-    this.tex = dot(this.app, 1.6);
-    this.coreTex = glow(256, this.app.renderer.resolution);
-    this.installZoom();
-    this.app.ticker.add((t) => {
-      const dt = t.deltaMS / 1000;
+    this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: true, alpha: false });
+    this.renderer.setPixelRatio(Math.min(3, window.devicePixelRatio || 1));
+    this.renderer.setClearColor(0x0a0c11);
+    el.appendChild(this.canvas);
+    this.camera = new THREE.PerspectiveCamera(50, 1, 1, 20000);
+    this.camera.position.set(0, 120, this.baseDist);
+    this.controls = new OrbitControls(this.camera, this.canvas);
+    this.controls.enableDamping = true;
+    this.controls.dampingFactor = 0.08;
+    this.controls.minDistance = 8;   // close enough to pass between layers
+    this.controls.maxDistance = 4000;
+    this.controls.rotateSpeed = 0.6;
+    this.controls.zoomSpeed = 0.8;
+    const resize = () => {
+      this.renderer.setSize(window.innerWidth, window.innerHeight, false);
+      this.camera.aspect = window.innerWidth / window.innerHeight;
+      this.camera.updateProjectionMatrix();
+    };
+    window.addEventListener("resize", resize);
+    resize();
+    this.installPicking();
+    let last = performance.now();
+    const loop = () => {
+      const now = performance.now();
+      const dt = Math.min(0.1, (now - last) / 1000);
+      last = now;
       this.time += dt;
-      this.layout();
+      this.controls.update();
       for (const s of this.streams) s.tick(dt);
-      for (const b of this.blobs.values()) { b.zoom = this.app.stage.scale.x; b.tick(dt, this.time); }
+      for (const b of this.blobs.values()) b.tick(dt, this.time);
+      this.renderer.render(this.scene, this.camera);
+      for (const cb of this.frameCbs) cb();
+      requestAnimationFrame(loop);
+    };
+    requestAnimationFrame(loop);
+  }
+
+  onFrame(cb: () => void) { this.frameCbs.push(cb); }
+
+  // How far in the viewer has come, relative to the starting distance; the page reveals detail past ~1.8.
+  get zoom() { return this.baseDist / Math.max(1, this.camera.position.distanceTo(this.controls.target)); }
+
+  private installPicking() {
+    let down: { x: number; y: number; t: number } | null = null;
+    this.canvas.addEventListener("pointerdown", (e) => { down = { x: e.clientX, y: e.clientY, t: performance.now() }; this.dragged = false; });
+    this.canvas.addEventListener("pointermove", (e) => { if (down && Math.hypot(e.clientX - down.x, e.clientY - down.y) > 6) this.dragged = true; });
+    this.canvas.addEventListener("pointerup", (e) => {
+      if (!down) return;
+      const tap = !this.dragged && performance.now() - down.t < 400;
+      down = null;
+      if (!tap) return;
+      const id = this.hitTest(e.clientX, e.clientY);
+      if (id) this.onPick(id);
     });
+    this.canvas.addEventListener("dblclick", () => { this.controls.reset(); });
+  }
+
+  hitTest(clientX: number, clientY: number): string | null {
+    const rect = this.canvas.getBoundingClientRect();
+    const ndc = new THREE.Vector2(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
+    const ray = new THREE.Raycaster();
+    ray.setFromCamera(ndc, this.camera);
+    const hits = ray.intersectObjects([...this.blobs.values()].map((b) => b.group.children.find((c) => c.userData.id)!), false);
+    return hits.length ? (hits[0].object.userData.id as string) : null;
   }
 
   private layout() {
-    const w = this.app.screen.width, h = this.app.screen.height;
     const list = [...this.blobs.values()];
-    const gap = w / (list.length + 1);
-    list.forEach((b, i) => { b.x = gap * (i + 1); b.y = h * 0.45; });
-  }
-
-  // Zoom the stage about a screen point, 1x to 5x; positions elsewhere go through toGlobal so labels and
-  // hit tests follow.
-  private zoomAt(factor: number, sx: number, sy: number) {
-    const st = this.app.stage;
-    const next = Math.min(5, Math.max(1, st.scale.x * factor));
-    const k = next / st.scale.x;
-    st.position.set(sx - (sx - st.position.x) * k, sy - (sy - st.position.y) * k);
-    st.scale.set(next);
-    if (next === 1) st.position.set(0, 0);
-  }
-
-  // True while a drag is in progress or just ended, so the page does not treat the release as a tap.
-  dragged = false;
-
-  private installZoom() {
-    const c = this.app.canvas;
-    c.addEventListener("wheel", (e) => { e.preventDefault(); this.zoomAt(Math.exp(-e.deltaY * 0.002), e.clientX, e.clientY); }, { passive: false });
-    const pts = new Map<number, { x: number; y: number }>();
-    let lastDist = 0, lastTap = 0, moved = 0;
-    c.addEventListener("pointerdown", (e) => {
-      pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
-      if (pts.size === 1) {
-        const now = performance.now();
-        if (now - lastTap < 300) { this.app.stage.scale.set(1); this.app.stage.position.set(0, 0); }
-        lastTap = now;
-        moved = 0;
-        this.dragged = false;
-      }
-      lastDist = 0;
-    });
-    c.addEventListener("pointermove", (e) => {
-      const prev = pts.get(e.pointerId);
-      if (!prev) return;
-      pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
-      if (pts.size === 1) {
-        // one pointer: pan when zoomed in, after a few pixels so a tap stays a tap
-        moved += Math.hypot(e.clientX - prev.x, e.clientY - prev.y);
-        if (moved > 6 && this.app.stage.scale.x > 1) {
-          this.dragged = true;
-          const st = this.app.stage;
-          st.position.set(st.position.x + e.clientX - prev.x, st.position.y + e.clientY - prev.y);
-        }
-        return;
-      }
-      if (pts.size !== 2) return;
-      const [a, b] = [...pts.values()];
-      const d = Math.hypot(a.x - b.x, a.y - b.y);
-      if (lastDist > 0) this.zoomAt(d / lastDist, (a.x + b.x) / 2, (a.y + b.y) / 2);
-      lastDist = d;
-      this.dragged = true;
-    });
-    const up = (e: PointerEvent) => { pts.delete(e.pointerId); lastDist = 0; if (pts.size === 0) setTimeout(() => { this.dragged = false; }, 0); };
-    c.addEventListener("pointerup", up);
-    c.addEventListener("pointercancel", up);
+    const gap = Math.max(...list.map((b) => b.radius)) * 2.8;
+    const total = gap * (list.length - 1);
+    list.forEach((b, i) => b.group.position.set(-total / 2 + gap * i, 0, 0));
+    this.baseDist = Math.max(600, total * 0.9 + gap);
+    if (!this.controls.target.lengthSq()) { this.camera.position.set(0, this.baseDist * 0.42, this.baseDist * 0.9); this.controls.saveState(); }
   }
 
   apply(s: Snapshot) {
     for (const n of s.nodes) {
       let b = this.blobs.get(n.id);
       if (!b) {
-        b = new Blob(n, this.tex, this.coreTex);
-        b.container.on("pointertap", () => this.onPick(n.id));
+        b = new Blob(n, this.tex, this.glow);
         this.blobs.set(n.id, b);
-        this.app.stage.addChild(b.container);
+        this.scene.add(b.group);
       }
       b.layers = n.layers ?? null;
-      b.nLayer = s.model.structure?.n_layer ?? 0;
-      b.resize(n, this.tex);
+      b.resize(n);
       b.activity = this.activityOf(n, s.links);
       const server = s.nodes.find((x) => x.kind === "llama-server");
       b.ctxFill = server?.slot && s.model.n_ctx ? Math.min(1, server.slot.n_prompt / s.model.n_ctx) : 0;
     }
-    for (const id of [...this.blobs.keys()]) if (!s.nodes.some((n) => n.id === id)) { this.app.stage.removeChild(this.blobs.get(id)!.container); this.blobs.delete(id); }
+    for (const id of [...this.blobs.keys()]) if (!s.nodes.some((n) => n.id === id)) { this.scene.remove(this.blobs.get(id)!.group); this.blobs.delete(id); }
+    this.layout();
     for (const l of s.links) {
       let st = this.streams.find((x) => x.from.id === l.from && x.to.id === l.to);
       if (!st) {
@@ -283,28 +298,27 @@ export class Scene {
         if (!a || !b) continue;
         st = new Stream(this.tex, a, b);
         this.streams.push(st);
-        this.app.stage.addChildAt(st.container, 0);
+        this.scene.add(st.points);
       }
       st.rateOut = l.bytes_out_per_s;
       st.rateIn = l.bytes_in_per_s;
     }
   }
 
-  // The server's activity is measured; a remote node's is the bytes reaching it, which is all the server knows too.
   private activityOf(n: Node, links: Link[]): number {
     if (n.kind === "llama-server") return (n.requests_processing ?? 0) > 0 || (n.tokens_per_s ?? 0) > 0 ? 1 : 0;
     const flow = links.filter((l) => l.to === n.id).reduce((a, l) => a + l.bytes_out_per_s + l.bytes_in_per_s, 0);
     return Math.min(1, flow / 5e5);
   }
 
-  get zoom() { return this.app.stage.scale.x; }
-
   screenPos(id: string): { x: number; y: number; r: number } | null {
     const b = this.blobs.get(id);
     if (!b) return null;
-    const rect = this.app.canvas.getBoundingClientRect();
-    const k = rect.width / this.app.screen.width;
-    const g = this.app.stage.toGlobal({ x: b.x, y: b.y });
-    return { x: rect.left + g.x * k, y: rect.top + g.y * k, r: b.screenRadius * k * this.app.stage.scale.x };
+    const rect = this.canvas.getBoundingClientRect();
+    const v = b.group.position.clone().project(this.camera);
+    if (v.z > 1) return null;
+    const dist = this.camera.position.distanceTo(b.group.position);
+    const r = b.radius * (rect.height / 2) / (dist * Math.tan((this.camera.fov * Math.PI) / 360));
+    return { x: rect.left + (v.x + 1) / 2 * rect.width, y: rect.top + (1 - v.y) / 2 * rect.height, r };
   }
 }

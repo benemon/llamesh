@@ -7,7 +7,7 @@ import { UI } from "./ui";
 const scene = new Scene();
 console.log("llamesh: init");
 await scene.init(document.getElementById("stage")!);
-console.log("llamesh: renderer", scene.app.renderer.name);
+console.log("llamesh: renderer three");
 const ui = new UI(scene);
 (window as unknown as { llamesh: unknown }).llamesh = { scene, ui };  // for poking at it from the console
 source()((s) => { scene.apply(s); ui.apply(s); }, (ok) => ui.connected(ok));

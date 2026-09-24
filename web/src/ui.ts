@@ -38,23 +38,16 @@ export class UI {
 
   constructor(private scene: Scene) {
     scene.onPick = (id) => { if (!scene.dragged) this.select(id === this.selected ? null : id); }; // tapping the open blob closes it
-    scene.app.canvas.addEventListener("pointerup", (e) => { if (e.target === scene.app.canvas && !scene.dragged && !this.hitAny(e)) this.select(null); });
+    scene.canvas.addEventListener("pointerup", (e) => { if (e.target === scene.canvas && !scene.dragged && !scene.hitTest(e.clientX, e.clientY)) this.select(null); });
     this.panel.addEventListener("click", (e) => { if ((e.target as HTMLElement).closest(".close")) this.select(null); });
     let wasZoomed = false;
-    scene.app.ticker.add(() => {
+    scene.onFrame(() => {
       const z = scene.zoom > 1.8;
       if (z !== wasZoomed && this.last) { wasZoomed = z; this.renderLabels(this.last); }
       this.placeLabels();
     });
   }
 
-  private hitAny(e: PointerEvent) {
-    for (const id of this.scene.blobs.keys()) {
-      const p = this.scene.screenPos(id);
-      if (p && Math.hypot(e.clientX - p.x, e.clientY - p.y) < p.r * 1.1) return true;
-    }
-    return false;
-  }
 
   private pinned(id: string): Set<string> {
     if (!this.pins.has(id)) {

@@ -1,6 +1,6 @@
 :root { color-scheme: dark; --fg: #d7dbe3; --dim: #7d8594; --bg: #0a0c11; --panel: #12161ecc; --line: #263041; }
 html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); font: 13px/1.4 -apple-system, "SF Pro Text", Inter, system-ui, sans-serif; overflow: hidden; }
-#stage, #stage canvas { position: fixed; inset: 0; display: block; touch-action: none; user-select: none; -webkit-user-select: none; }
+#stage, #stage canvas { position: fixed; inset: 0; display: block; width: 100vw; height: 100vh; touch-action: none; user-select: none; -webkit-user-select: none; }
 body.stale #stage { filter: grayscale(0.8) brightness(0.6); }
 #labels { position: fixed; inset: 0; pointer-events: none; }
 .label { position: absolute; transform: translate(-50%, 0); min-width: 9em; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; backdrop-filter: blur(6px); }
