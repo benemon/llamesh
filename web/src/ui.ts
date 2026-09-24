@@ -135,7 +135,7 @@ export class UI {
     const count = n.layers ? n.layers[1] - n.layers[0] + 1 : 1;
     const server = this.last.nodes.find((x) => x.kind === "llama-server");
     const fill = server?.slot && this.last.model.n_ctx ? server.slot.n_prompt / this.last.model.n_ctx : 0;
-    if (d.core) return `<b>${n.label}</b> · context core · ${fmtB(n.mem_context * fill)} of ${fmtB(n.mem_context)} in use`;
+    if (d.core) return `<b>${n.label}</b> · context core · ${fmtB(n.mem_context * fill)} of ${fmtB(n.mem_context)} in use (${Math.round(fill * 100)} % of the window)`;
     return `<b>${n.label}</b> · layer ${d.layer! + 1} of ${this.last.model.structure?.n_layer ?? "?"} · ${fmtB(n.mem_model / count)} weights · ${fmtB(n.mem_context / count * fill)} context in use`;
   }
 

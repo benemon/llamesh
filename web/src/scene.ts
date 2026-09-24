@@ -51,11 +51,12 @@ export class Blob {
   readonly group = new THREE.Group();
   readonly id: string;
   private grains: THREE.Points;
-  private core: THREE.Points;
+  private core: THREE.Mesh;       // the context in use: one body, volume proportional to tokens
+  private capacity: THREE.Mesh;   // faint shell at the size the context would be when full
+  private coreGlow: THREE.Sprite;
   private halo: THREE.Sprite;
   private pick: THREE.Mesh;
   private base: { theta: number; phi: number; w: number; jitter: number; layer: number }[] = [];
-  private coreBase: { r: number; theta: number; phi: number }[] = [];
   radius = 60;
   layers: [number, number] | null = null;
   activity = 0;
@@ -67,11 +68,13 @@ export class Blob {
     this.id = node.id;
     const tint = node.kind === "rpc" ? PALETTE.rpc : PALETTE.local;
     this.grains = points(tex, tint, 3.2, 30000);
-    this.core = points(tex, 0xffffff, 3.6, 4000);
+    this.core = new THREE.Mesh(new THREE.SphereGeometry(1, 48, 32), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false }));
+    this.capacity = new THREE.Mesh(new THREE.SphereGeometry(1, 48, 32), new THREE.MeshBasicMaterial({ color: tint, transparent: true, opacity: 0.06, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+    this.coreGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glow, color: 0xffffff, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false }));
     this.halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: glow, color: tint, transparent: true, opacity: 0.35, blending: THREE.AdditiveBlending, depthWrite: false }));
     this.pick = new THREE.Mesh(new THREE.SphereGeometry(1, 12, 12), new THREE.MeshBasicMaterial({ visible: false }));
     this.pick.userData.id = node.id;
-    this.group.add(this.halo, this.grains, this.core, this.pick);
+    this.group.add(this.halo, this.grains, this.capacity, this.coreGlow, this.core, this.pick);
     this.resize(node);
   }
 
@@ -87,9 +90,7 @@ export class Blob {
     this.base.length = want;
     this.base.forEach((g, i) => { g.layer = Math.min(count - 1, Math.floor(i * count / want)); });
     this.grains.geometry.setDrawRange(0, want);
-    const wantCore = Math.max(60, Math.min(4000, Math.round(node.mem_context / PARTICLE_BYTES)));
-    while (this.coreBase.length < wantCore) this.coreBase.push({ r: Math.cbrt(Math.random()), theta: Math.random() * Math.PI * 2, phi: Math.acos(2 * Math.random() - 1) });
-    this.coreBase.length = wantCore;
+    this.capacity.scale.setScalar(this.radius * 0.3);
     this.halo.scale.set(this.radius * 3.4, this.radius * 3.4, 1);
     this.pick.scale.setScalar(this.radius * 1.1);
   }
@@ -116,20 +117,12 @@ export class Blob {
     }
     pos.needsUpdate = true;
     (this.grains.material as THREE.PointsMaterial).opacity = 0.32 + 0.3 * a;
-    const cpos = this.core.geometry.getAttribute("position") as THREE.BufferAttribute;
-    const carr = cpos.array as Float32Array;
-    const rc = R * 0.3 * Math.sqrt(Math.max(0.02, this.ctxFill));
-    const shown = Math.round(this.coreBase.length * Math.max(0.02, this.ctxFill));
-    for (let i = 0; i < shown; i++) {
-      const c = this.coreBase[i];
-      const r = rc * c.r;
-      const th = c.theta + this.spin * 0.5;
-      carr[i * 3] = r * Math.sin(c.phi) * Math.cos(th);
-      carr[i * 3 + 1] = r * Math.cos(c.phi);
-      carr[i * 3 + 2] = r * Math.sin(c.phi) * Math.sin(th);
-    }
-    cpos.needsUpdate = true;
-    this.core.geometry.setDrawRange(0, shown);
+    // the core's volume is the context in use; it can only grow to the capacity shell
+    const rc = this.radius * 0.3 * Math.cbrt(Math.max(0.01, this.ctxFill));
+    this.core.scale.setScalar(rc);
+    this.coreGlow.scale.set(rc * 4, rc * 4, 1);
+    (this.core.material as THREE.MeshBasicMaterial).opacity = 0.7 + 0.25 * a + 0.05 * Math.sin(time * 1.5);
+    (this.coreGlow.material as THREE.SpriteMaterial).opacity = 0.35 + 0.35 * a;
     (this.halo.material as THREE.SpriteMaterial).opacity = 0.22 + 0.25 * a;
   }
 }
