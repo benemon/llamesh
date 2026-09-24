@@ -68,9 +68,10 @@ export class Blob {
     this.id = node.id;
     const tint = node.kind === "rpc" ? PALETTE.rpc : PALETTE.local;
     this.grains = points(tex, tint, 3.2, 30000);
-    this.core = new THREE.Mesh(new THREE.SphereGeometry(1, 48, 32), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false }));
-    this.capacity = new THREE.Mesh(new THREE.SphereGeometry(1, 48, 32), new THREE.MeshBasicMaterial({ color: tint, transparent: true, opacity: 0.06, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
-    this.coreGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glow, color: 0xffffff, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false }));
+    // A lit body, not a flare: limb shading is what makes it read as a sphere.
+    this.core = new THREE.Mesh(new THREE.SphereGeometry(1, 48, 32), new THREE.MeshStandardMaterial({ color: 0xfff1d6, emissive: 0xffe4b8, emissiveIntensity: 0.35, roughness: 0.6, metalness: 0 }));
+    this.capacity = new THREE.Mesh(new THREE.SphereGeometry(1, 48, 32), new THREE.MeshBasicMaterial({ color: tint, transparent: true, opacity: 0.04, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+    this.coreGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glow, color: 0xffd9a8, transparent: true, opacity: 0.18, blending: THREE.AdditiveBlending, depthWrite: false }));
     this.halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: glow, color: tint, transparent: true, opacity: 0.35, blending: THREE.AdditiveBlending, depthWrite: false }));
     this.pick = new THREE.Mesh(new THREE.SphereGeometry(1, 12, 12), new THREE.MeshBasicMaterial({ visible: false }));
     this.pick.userData.id = node.id;
@@ -90,7 +91,7 @@ export class Blob {
     this.base.length = want;
     this.base.forEach((g, i) => { g.layer = Math.min(count - 1, Math.floor(i * count / want)); });
     this.grains.geometry.setDrawRange(0, want);
-    this.capacity.scale.setScalar(this.radius * 0.3);
+    this.capacity.scale.setScalar(this.radius * 0.2);
     this.halo.scale.set(this.radius * 3.4, this.radius * 3.4, 1);
     this.pick.scale.setScalar(this.radius * 1.1);
   }
@@ -104,12 +105,12 @@ export class Blob {
     const pos = this.grains.geometry.getAttribute("position") as THREE.BufferAttribute;
     const arr = pos.array as Float32Array;
     const n = this.base.length;
-    const shell = (R * 0.66) / count; // shells from 0.34R (outside the core) to R, evenly spaced
+    const shell = (R * 0.76) / count; // shells from 0.24R (outside the core) to R, evenly spaced
     for (let i = 0; i < n; i++) {
       const g = this.base[i];
       const th = g.theta + this.spin * g.w;
       const wob = Math.sin(time * 0.25 + i) * 0.04;
-      const r = R * 0.34 + shell * (g.layer + 0.5 + g.jitter) + R * wob;
+      const r = R * 0.24 + shell * (g.layer + 0.5 + g.jitter) + R * wob;
       const sp = Math.sin(g.phi);
       arr[i * 3] = r * sp * Math.cos(th);
       arr[i * 3 + 1] = r * Math.cos(g.phi);
@@ -118,11 +119,11 @@ export class Blob {
     pos.needsUpdate = true;
     (this.grains.material as THREE.PointsMaterial).opacity = 0.32 + 0.3 * a;
     // the core's volume is the context in use; it can only grow to the capacity shell
-    const rc = this.radius * 0.3 * Math.cbrt(Math.max(0.01, this.ctxFill));
+    const rc = this.radius * 0.2 * Math.cbrt(Math.max(0.01, this.ctxFill));
     this.core.scale.setScalar(rc);
-    this.coreGlow.scale.set(rc * 4, rc * 4, 1);
-    (this.core.material as THREE.MeshBasicMaterial).opacity = 0.7 + 0.25 * a + 0.05 * Math.sin(time * 1.5);
-    (this.coreGlow.material as THREE.SpriteMaterial).opacity = 0.35 + 0.35 * a;
+    this.coreGlow.scale.set(rc * 3, rc * 3, 1);
+    (this.core.material as THREE.MeshStandardMaterial).emissiveIntensity = 0.3 + 0.3 * a + 0.03 * Math.sin(time * 1.5);
+    (this.coreGlow.material as THREE.SpriteMaterial).opacity = 0.12 + 0.18 * a;
     (this.halo.material as THREE.SpriteMaterial).opacity = 0.22 + 0.25 * a;
   }
 }
@@ -196,6 +197,10 @@ export class Scene {
     this.renderer.setPixelRatio(Math.min(3, window.devicePixelRatio || 1));
     this.renderer.setClearColor(0x0a0c11);
     el.appendChild(this.canvas);
+    this.scene.add(new THREE.HemisphereLight(0xffffff, 0x223044, 0.9));
+    const key = new THREE.DirectionalLight(0xffffff, 1.4);
+    key.position.set(-0.6, 1, 0.8);
+    this.scene.add(key);
     this.camera = new THREE.PerspectiveCamera(50, 1, 1, 20000);
     this.camera.position.set(0, 120, this.baseDist);
     this.controls = new OrbitControls(this.camera, this.canvas);
@@ -310,9 +315,9 @@ export class Scene {
       const d = this.camera.position.distanceTo(b.group.position);
       const R = b.radius;
       if (d >= R) continue;
-      if (d < R * 0.34) return { id: b.id, layer: null, core: true };
+      if (d < R * 0.24) return { id: b.id, layer: null, core: true };
       const count = b.layers ? b.layers[1] - b.layers[0] + 1 : 1;
-      const idx = Math.min(count - 1, Math.floor((d - R * 0.34) / ((R * 0.66) / count)));
+      const idx = Math.min(count - 1, Math.floor((d - R * 0.24) / ((R * 0.76) / count)));
       return { id: b.id, layer: (b.layers ? b.layers[0] : 0) + idx, core: false };
     }
     return null;
