@@ -45,8 +45,8 @@ function points(tex: THREE.Texture, color: number, size: number, capacity: numbe
   return p;
 }
 
-// A node is a stack of discs, one per transformer layer it holds, close enough to read as one body from
-// afar and as separate layers once the camera is among them. The context cache is a white core.
+// A node is a sphere of concentric shells, one per transformer layer it holds, the first layer innermost:
+// one body from afar, separate shells once the camera is among them. The context cache is the core.
 export class Blob {
   readonly group = new THREE.Group();
   readonly id: string;
@@ -54,7 +54,7 @@ export class Blob {
   private core: THREE.Points;
   private halo: THREE.Sprite;
   private pick: THREE.Mesh;
-  private base: { r: number; a: number; w: number; y: number; layer: number }[] = [];
+  private base: { theta: number; phi: number; w: number; jitter: number; layer: number }[] = [];
   private coreBase: { r: number; theta: number; phi: number }[] = [];
   radius = 60;
   layers: [number, number] | null = null;
@@ -80,11 +80,9 @@ export class Blob {
     const want = Math.max(400, Math.min(30000, Math.round(held / PARTICLE_BYTES)));
     this.radius = 60 + 110 * Math.sqrt(Math.max(held, 1) / (64 * 1073741824));
     const count = this.layers ? this.layers[1] - this.layers[0] + 1 : 1;
-    const spacing = (this.radius * 1.5) / count;
     while (this.base.length < want) {
-      const i = this.base.length;
-      this.base.push({ r: Math.sqrt(Math.random()), a: Math.random() * Math.PI * 2, w: (0.02 + Math.random() * 0.06) * (Math.random() < 0.5 ? 1 : -1), y: (Math.random() - 0.5) * 0.35, layer: 0 });
-      void i;
+      // uniform on a sphere: theta around the axis, phi from the pole
+      this.base.push({ theta: Math.random() * Math.PI * 2, phi: Math.acos(2 * Math.random() - 1), w: 0.6 + Math.random() * 0.8, jitter: (Math.random() - 0.5) * 0.35, layer: 0 });
     }
     this.base.length = want;
     this.base.forEach((g, i) => { g.layer = Math.min(count - 1, Math.floor(i * count / want)); });
@@ -94,7 +92,6 @@ export class Blob {
     this.coreBase.length = wantCore;
     this.halo.scale.set(this.radius * 3.4, this.radius * 3.4, 1);
     this.pick.scale.setScalar(this.radius * 1.1);
-    void spacing;
   }
 
   tick(dt: number, time: number) {
@@ -102,25 +99,26 @@ export class Blob {
     const a = this.shown;
     const R = this.radius * (1 - 0.25 * a);
     const count = this.layers ? this.layers[1] - this.layers[0] + 1 : 1;
-    const spacing = (R * 1.5) / count;
     this.spin += dt * 0.05 * (1 + a * 0.6);
     const pos = this.grains.geometry.getAttribute("position") as THREE.BufferAttribute;
     const arr = pos.array as Float32Array;
     const n = this.base.length;
+    const shell = (R * 0.66) / count; // shells from 0.34R (outside the core) to R, evenly spaced
     for (let i = 0; i < n; i++) {
       const g = this.base[i];
-      const ang = g.a + this.spin * (1 + 0.3 * g.w);
-      const wob = Math.sin(time * 0.25 + i) * 0.05;
-      const r = R * (g.r + wob);
-      arr[i * 3] = Math.cos(ang) * r;
-      arr[i * 3 + 1] = (g.layer - (count - 1) / 2) * spacing + g.y * spacing;
-      arr[i * 3 + 2] = Math.sin(ang) * r;
+      const th = g.theta + this.spin * g.w;
+      const wob = Math.sin(time * 0.25 + i) * 0.04;
+      const r = R * 0.34 + shell * (g.layer + 0.5 + g.jitter) + R * wob;
+      const sp = Math.sin(g.phi);
+      arr[i * 3] = r * sp * Math.cos(th);
+      arr[i * 3 + 1] = r * Math.cos(g.phi);
+      arr[i * 3 + 2] = r * sp * Math.sin(th);
     }
     pos.needsUpdate = true;
     (this.grains.material as THREE.PointsMaterial).opacity = 0.32 + 0.3 * a;
     const cpos = this.core.geometry.getAttribute("position") as THREE.BufferAttribute;
     const carr = cpos.array as Float32Array;
-    const rc = R * 0.36 * Math.sqrt(Math.max(0.02, this.ctxFill));
+    const rc = R * 0.3 * Math.sqrt(Math.max(0.02, this.ctxFill));
     const shown = Math.round(this.coreBase.length * Math.max(0.02, this.ctxFill));
     for (let i = 0; i < shown; i++) {
       const c = this.coreBase[i];
