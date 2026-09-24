@@ -51,7 +51,8 @@ export class Blob {
   readonly group = new THREE.Group();
   readonly id: string;
   private grains: THREE.Points;
-  private core: THREE.Mesh;       // the context in use: one body, volume proportional to tokens
+  private core: THREE.Points;     // the context in use: a dense ball of the same grains, volume proportional to tokens
+  private coreBase: { r: number; theta: number; phi: number }[] = [];
   private capacity: THREE.Mesh;   // faint shell at the size the context would be when full
   private coreGlow: THREE.Sprite;
   private halo: THREE.Sprite;
@@ -68,8 +69,10 @@ export class Blob {
     this.id = node.id;
     const tint = node.kind === "rpc" ? PALETTE.rpc : PALETTE.local;
     this.grains = points(tex, tint, 3.2, 30000);
-    // A lit body, not a flare: limb shading is what makes it read as a sphere.
-    this.core = new THREE.Mesh(new THREE.SphereGeometry(1, 48, 32), new THREE.MeshStandardMaterial({ color: 0xfff1d6, emissive: 0xffe4b8, emissiveIntensity: 0.35, roughness: 0.6, metalness: 0 }));
+    // The same grains as the shells, packed densely enough to read as a body.
+    this.core = points(tex, 0xfff3dc, 2.6, 8000);
+    (this.core.material as THREE.PointsMaterial).opacity = 0.75;
+    for (let i = 0; i < 8000; i++) this.coreBase.push({ r: Math.cbrt(Math.random()), theta: Math.random() * Math.PI * 2, phi: Math.acos(2 * Math.random() - 1) });
     this.capacity = new THREE.Mesh(new THREE.SphereGeometry(1, 48, 32), new THREE.MeshBasicMaterial({ color: tint, transparent: true, opacity: 0.04, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
     this.coreGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glow, color: 0xffd9a8, transparent: true, opacity: 0.18, blending: THREE.AdditiveBlending, depthWrite: false }));
     this.halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: glow, color: tint, transparent: true, opacity: 0.35, blending: THREE.AdditiveBlending, depthWrite: false }));
@@ -120,10 +123,21 @@ export class Blob {
     (this.grains.material as THREE.PointsMaterial).opacity = 0.32 + 0.3 * a;
     // the core's volume is the context in use; it can only grow to the capacity shell
     const rc = this.radius * 0.2 * Math.cbrt(Math.max(0.01, this.ctxFill));
-    this.core.scale.setScalar(rc);
+    const cpos = this.core.geometry.getAttribute("position") as THREE.BufferAttribute;
+    const carr = cpos.array as Float32Array;
+    for (let i = 0; i < this.coreBase.length; i++) {
+      const c = this.coreBase[i];
+      const r = rc * c.r;
+      const th = c.theta + this.spin * 0.4;
+      const sp = Math.sin(c.phi);
+      carr[i * 3] = r * sp * Math.cos(th);
+      carr[i * 3 + 1] = r * Math.cos(c.phi);
+      carr[i * 3 + 2] = r * sp * Math.sin(th);
+    }
+    cpos.needsUpdate = true;
+    (this.core.material as THREE.PointsMaterial).opacity = 0.6 + 0.3 * a + 0.03 * Math.sin(time * 1.5);
     this.coreGlow.scale.set(rc * 3, rc * 3, 1);
-    (this.core.material as THREE.MeshStandardMaterial).emissiveIntensity = 0.3 + 0.3 * a + 0.03 * Math.sin(time * 1.5);
-    (this.coreGlow.material as THREE.SpriteMaterial).opacity = 0.12 + 0.18 * a;
+    (this.coreGlow.material as THREE.SpriteMaterial).opacity = 0.1 + 0.15 * a;
     (this.halo.material as THREE.SpriteMaterial).opacity = 0.22 + 0.25 * a;
   }
 }
