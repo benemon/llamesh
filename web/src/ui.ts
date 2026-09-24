@@ -32,6 +32,7 @@ export class UI {
   private labels = document.getElementById("labels")!;
   private strip = document.getElementById("strip")!;
   private status = document.getElementById("status")!;
+  private depth = document.getElementById("depth")!;
   private selected: string | null = null;
   private last: Snapshot | null = null;
   private pins = new Map<string, Set<string>>();
@@ -40,11 +41,13 @@ export class UI {
     scene.onPick = (id) => { if (!scene.dragged) this.select(id === this.selected ? null : id); }; // tapping the open blob closes it
     scene.canvas.addEventListener("pointerup", (e) => { if (e.target === scene.canvas && !scene.dragged && !scene.hitTest(e.clientX, e.clientY)) this.select(null); });
     this.panel.addEventListener("click", (e) => { if ((e.target as HTMLElement).closest(".close")) this.select(null); });
-    let wasZoomed = false;
+    let wasZoomed = false, lastDepth = "";
     scene.onFrame(() => {
       const z = scene.zoom > 1.8;
       if (z !== wasZoomed && this.last) { wasZoomed = z; this.renderLabels(this.last); }
       this.placeLabels();
+      const d = this.depthText();
+      if (d !== lastDepth) { lastDepth = d; this.depth.innerHTML = d; }
     });
   }
 
@@ -119,6 +122,21 @@ export class UI {
       el.style.left = `${Math.min(Math.max(p.x, el.offsetWidth / 2 + 8), window.innerWidth - el.offsetWidth / 2 - 8)}px`;
       el.style.top = `${Math.min(p.y + p.r * 1.25, strip - el.offsetHeight - 12)}px`;
     });
+  }
+
+  // What the camera is inside: the layer being passed with its share of the node's weights and context,
+  // or the core. Per-layer figures are the node's totals divided by its layer count; llama.cpp reports
+  // nothing finer.
+  private depthText(): string {
+    const d = this.scene.depth();
+    if (!d || !this.last) return "";
+    const n = this.last.nodes.find((x) => x.id === d.id);
+    if (!n) return "";
+    const count = n.layers ? n.layers[1] - n.layers[0] + 1 : 1;
+    const server = this.last.nodes.find((x) => x.kind === "llama-server");
+    const fill = server?.slot && this.last.model.n_ctx ? server.slot.n_prompt / this.last.model.n_ctx : 0;
+    if (d.core) return `<b>${n.label}</b> · context core · ${fmtB(n.mem_context * fill)} of ${fmtB(n.mem_context)} in use`;
+    return `<b>${n.label}</b> · layer ${d.layer! + 1} of ${this.last.model.structure?.n_layer ?? "?"} · ${fmtB(n.mem_model / count)} weights · ${fmtB(n.mem_context / count * fill)} context in use`;
   }
 
   private renderStrip(s: Snapshot) {

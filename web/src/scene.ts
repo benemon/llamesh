@@ -309,6 +309,20 @@ export class Scene {
     return Math.min(1, flow / 5e5);
   }
 
+  // Where the camera is inside a node, if anywhere: the layer whose shell it is passing, or the core.
+  depth(): { id: string; layer: number | null; core: boolean } | null {
+    for (const b of this.blobs.values()) {
+      const d = this.camera.position.distanceTo(b.group.position);
+      const R = b.radius;
+      if (d >= R) continue;
+      if (d < R * 0.34) return { id: b.id, layer: null, core: true };
+      const count = b.layers ? b.layers[1] - b.layers[0] + 1 : 1;
+      const idx = Math.min(count - 1, Math.floor((d - R * 0.34) / ((R * 0.66) / count)));
+      return { id: b.id, layer: (b.layers ? b.layers[0] : 0) + idx, core: false };
+    }
+    return null;
+  }
+
   screenPos(id: string): { x: number; y: number; r: number } | null {
     const b = this.blobs.get(id);
     if (!b) return null;
