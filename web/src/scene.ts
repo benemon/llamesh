@@ -3,7 +3,9 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import type { Link, Node, Snapshot } from "./types";
 
 const PARTICLE_BYTES = 4 * 1048576; // one grain per 4 MiB held
-const PALETTE = { local: 0x7fb7ff, rpc: 0xffb36b, out: 0x7fb7ff, in: 0xffb36b };
+// The primary is blue; each RPC node takes the next distinct hue in --rpc order.
+const PRIMARY = 0x7fb7ff;
+const NODE_COLOURS = [0xffb36b, 0x8ce99a, 0xf78fb3, 0xc3a6ff, 0xffe27a, 0x7fe3e0];
 
 // A soft round sprite for every grain, drawn with Canvas 2D at the device resolution.
 function grainTexture(): THREE.Texture {
@@ -50,6 +52,7 @@ function points(tex: THREE.Texture, color: number, size: number, capacity: numbe
 export class Blob {
   readonly group = new THREE.Group();
   readonly id: string;
+  readonly colour: number;
   private grains: THREE.Points;
   private core: THREE.Points;     // the context in use: a dense ball of the same grains, volume proportional to tokens
   private coreBase: { r: number; theta: number; phi: number }[] = [];
@@ -66,9 +69,10 @@ export class Blob {
   private shown = 0;
   private spin = 0;
 
-  constructor(node: Node, tex: THREE.Texture, glow: THREE.Texture) {
+  constructor(node: Node, index: number, tex: THREE.Texture, glow: THREE.Texture) {
     this.id = node.id;
-    const tint = node.kind === "rpc" ? PALETTE.rpc : PALETTE.local;
+    const tint = node.kind === "rpc" ? NODE_COLOURS[index % NODE_COLOURS.length] : PRIMARY;
+    this.colour = tint;
     this.grains = points(tex, tint, 3.2, 30000);
     // The same grains as the shells, packed densely enough to read as a body.
     this.core = points(tex, 0xfff3dc, 2.6, 8000);
@@ -172,7 +176,7 @@ export class Stream {
     const pos = this.points.geometry.getAttribute("position") as THREE.BufferAttribute;
     const col = this.points.geometry.getAttribute("color") as THREE.BufferAttribute;
     const parr = pos.array as Float32Array, carr = col.array as Float32Array;
-    const cOut = new THREE.Color(PALETTE.out), cIn = new THREE.Color(PALETTE.in);
+    const cOut = new THREE.Color(this.from.colour), cIn = new THREE.Color(this.to.colour);
     let k = 0;
     for (let i = this.pool.length - 1; i >= 0; i--) {
       const p = this.pool[i];
@@ -282,12 +286,18 @@ export class Scene {
     return hits.length ? (hits[0].object.userData.id as string) : null;
   }
 
+  // The primary at the centre; the RPC nodes on a ring around it in --rpc order, starting to its right.
   private layout() {
     const list = [...this.blobs.values()];
+    const primary = list.find((b) => b.id === "local") ?? list[0];
+    const others = list.filter((b) => b !== primary);
     const gap = Math.max(...list.map((b) => b.radius)) * 2.8;
-    const total = gap * (list.length - 1);
-    list.forEach((b, i) => b.group.position.set(-total / 2 + gap * i, 0, 0));
-    this.baseDist = Math.max(600, total * 0.9 + gap);
+    primary?.group.position.set(0, 0, 0);
+    others.forEach((b, i) => {
+      const ang = (i / Math.max(1, others.length)) * Math.PI * 2;
+      b.group.position.set(Math.cos(ang) * gap, 0, Math.sin(ang) * gap);
+    });
+    this.baseDist = Math.max(600, gap * 1.9 + (primary?.radius ?? 0));
     // The starting view is set once, on the first layout; snapshots arrive every second and must not move it.
     if (!this.placed) { this.placed = true; this.camera.position.set(0, this.baseDist * 0.42, this.baseDist * 0.9); this.controls.saveState(); }
   }
@@ -296,7 +306,8 @@ export class Scene {
     for (const n of s.nodes) {
       let b = this.blobs.get(n.id);
       if (!b) {
-        b = new Blob(n, this.tex, this.glow);
+        const index = s.nodes.filter((x) => x.kind === "rpc").findIndex((x) => x.id === n.id);
+        b = new Blob(n, Math.max(0, index), this.tex, this.glow);
         this.blobs.set(n.id, b);
         this.scene.add(b.group);
       }

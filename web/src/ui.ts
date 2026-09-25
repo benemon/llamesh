@@ -108,7 +108,8 @@ export class UI {
       const el = document.createElement("div");
       el.className = "label";
       el.dataset.id = n.id;
-      el.innerHTML = `<div class="name">${n.label} <em>${n.device}</em></div>` + rows.map(([k, v]) => `<div><span>${k}</span>${v}</div>`).join("");
+      const colour = "#" + (this.scene.blobs.get(n.id)?.colour ?? 0x7fb7ff).toString(16).padStart(6, "0");
+      el.innerHTML = `<div class="name"><i style="background:${colour}"></i>${n.label} <em>${n.device}</em></div>` + rows.map(([k, v]) => `<div><span>${k}</span>${v}</div>`).join("");
       this.labels.appendChild(el);
     }
     this.placeLabels();

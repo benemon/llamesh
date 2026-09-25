@@ -24,3 +24,4 @@ body.stale #stage { filter: grayscale(0.8) brightness(0.6); }
 #depth { position: fixed; top: 14px; left: 50%; transform: translateX(-50%); padding: 8px 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; backdrop-filter: blur(6px); color: var(--dim); white-space: nowrap; max-width: calc(100vw - 32px); overflow: hidden; text-overflow: ellipsis; }
 #depth:empty { display: none; }
 #depth b { color: var(--fg); font-weight: 500; }
+.label .name i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 7px; vertical-align: 1px; }
