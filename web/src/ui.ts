@@ -1,14 +1,15 @@
 import type { Scene } from "./scene";
-import type { Node, Snapshot } from "./types";
+import type { View, ViewNode } from "./types";
 
 const fmtB = (b: number) => b >= 1073741824 ? `${(b / 1073741824).toFixed(1)} GiB` : b >= 1048576 ? `${(b / 1048576).toFixed(0)} MiB` : `${(b / 1024).toFixed(0)} KiB`;
 const fmtRate = (b: number) => b >= 1e6 ? `${(b / 1e6).toFixed(1)} MB/s` : `${(b / 1e3).toFixed(0)} KB/s`;
 
 // Every scalar of a node, flattened, as label -> display string. What the panel lists and pins draw from.
-function fields(n: Node, s?: Snapshot): [string, string][] {
+function fields(n: ViewNode): [string, string][] {
   const f: [string, string][] = [
+    ["host", n.source],
     ["device", n.device],
-    ["address", n.id],
+    ["address", n.address],
     ["memory total", fmtB(n.mem_total)],
     ["model", fmtB(n.mem_model)],
     ["context", fmtB(n.mem_context)],
@@ -16,9 +17,8 @@ function fields(n: Node, s?: Snapshot): [string, string][] {
     ["held", `${((n.mem_model + n.mem_context + n.mem_compute) / n.mem_total * 100).toFixed(0)} %`],
   ];
   // llama.cpp numbers layers from 0; people count from 1, so "1–24 of 36" and "25–36 of 36"
-  if (n.layers && s?.model.structure?.n_layer) f.push(["layers", `${n.layers[0] + 1}–${n.layers[1] + 1} of ${s.model.structure.n_layer}`]);
-  const server = s?.nodes.find((x) => x.kind === "llama-server");
-  if (server?.slot && s?.model.n_ctx) f.push(["context", `${Math.round((server.slot.n_prompt + (server.slot.n_decoded ?? 0)) / s.model.n_ctx * 100)} % of ${(s.model.n_ctx / 1024).toFixed(0)}k held`]);
+  if (n.layers && n.n_layer) f.push(["layers", `${n.layers[0] + 1}–${n.layers[1] + 1} of ${n.n_layer}`]);
+  if (n.server_slot && n.n_ctx) f.push(["context", `${Math.round(n.ctx_fill * 100)} % of ${(n.n_ctx / 1024).toFixed(0)}k held`]);
   if (n.kind === "llama-server") {
     f.push(["tokens/s", (n.tokens_per_s ?? 0).toFixed(1)], ["prompt tokens/s", (n.prompt_tokens_per_s ?? 0).toFixed(0)], ["requests", String(n.requests_processing ?? 0)]);
     if (n.slot) f.push(["slot", n.slot.processing ? "processing" : "idle"], ["prompt", `${n.slot.n_processed} / ${n.slot.n_prompt} (${n.slot.n_cached} cached)`]);
@@ -34,7 +34,7 @@ export class UI {
   private status = document.getElementById("status")!;
   private depth = document.getElementById("depth")!;
   private selected: string | null = null;
-  private last: Snapshot | null = null;
+  private last: View | null = null;
   private pins = new Map<string, Set<string>>();
 
   constructor(private scene: Scene) {
@@ -76,7 +76,7 @@ export class UI {
     document.body.classList.toggle("stale", !ok);
   }
 
-  apply(s: Snapshot) {
+  apply(s: View) {
     this.last = s;
     this.renderPanel();
     this.renderStrip(s);
@@ -89,7 +89,7 @@ export class UI {
     if (!n) { this.select(null); return; }
     const pins = this.pinned(n.id);
     this.panel.innerHTML = `<button class="close" aria-label="close">×</button><h2>${n.kind === "rpc" ? "rpc node" : "llama-server"} <span>${n.label}</span><small>${n.id}</small></h2>` +
-      fields(n, this.last).map(([k, v]) => `<label><input type="checkbox" data-k="${k}" ${pins.has(k) ? "checked" : ""}/> <b>${k}</b><span>${v}</span></label>`).join("") +
+      fields(n).map(([k, v]) => `<label><input type="checkbox" data-k="${k}" ${pins.has(k) ? "checked" : ""}/> <b>${k}</b><span>${v}</span></label>`).join("") +
       `<p class="hint">tick a field to pin it to the blob</p>`;
     this.panel.querySelectorAll<HTMLInputElement>("input").forEach((cb) => cb.onchange = () => {
       cb.checked ? pins.add(cb.dataset.k!) : pins.delete(cb.dataset.k!);
@@ -98,13 +98,13 @@ export class UI {
     });
   }
 
-  private renderLabels(s: Snapshot) {
+  private renderLabels(s: View) {
     this.labels.innerHTML = "";
     for (const n of s.nodes) {
       const pins = this.pinned(n.id);
       // zoomed in, the layer range and context fill show without being pinned: that is what the rings are
       const zoomed = this.scene.zoom > 1.8;
-      const rows = fields(n, s).filter(([k]) => pins.has(k) || (zoomed && (k === "layers" || k === "context")));
+      const rows = fields(n).filter(([k]) => pins.has(k) || (zoomed && (k === "layers" || k === "context")));
       const el = document.createElement("div");
       el.className = "label";
       el.dataset.id = n.id;
@@ -134,27 +134,26 @@ export class UI {
     const n = this.last.nodes.find((x) => x.id === d.id);
     if (!n) return "";
     const count = n.layers ? n.layers[1] - n.layers[0] + 1 : 1;
-    const server = this.last.nodes.find((x) => x.kind === "llama-server");
-    const fill = server?.slot && this.last.model.n_ctx ? (server.slot.n_prompt + (server.slot.n_decoded ?? 0)) / this.last.model.n_ctx : 0;
+    const fill = n.ctx_fill;
     if (d.core) return `<b>${n.label}</b> · context core · ${fmtB(n.mem_context * fill)} of ${fmtB(n.mem_context)} in use (${Math.round(fill * 100)} % of the window)`;
-    return `<b>${n.label}</b> · layer ${d.layer! + 1} of ${this.last.model.structure?.n_layer ?? "?"} · ${fmtB(n.mem_model / count)} weights · ${fmtB(n.mem_context / count * fill)} context in use`;
+    return `<b>${n.label}</b> · layer ${d.layer! + 1} of ${n.n_layer ?? "?"} · ${fmtB(n.mem_model / count)} weights · ${fmtB(n.mem_context / count * fill)} context in use`;
   }
 
-  private renderStrip(s: Snapshot) {
-    const server = s.nodes.find((n) => n.kind === "llama-server");
-    const tps = s.nodes.reduce((a, n) => a + (n.tokens_per_s ?? 0), 0);
-    const flow = s.links.reduce((a, l) => a + l.bytes_out_per_s + l.bytes_in_per_s, 0);
-    const held = s.nodes.reduce((a, n) => a + n.mem_model + n.mem_context + n.mem_compute, 0);
-    const slot = server?.slot;
-    const prog = slot && slot.n_prompt > 0 ? `${Math.min(100, Math.round(slot.n_processed / slot.n_prompt * 100))} %` : "";
+  private renderStrip(s: View) {
     const cell = (k: string, v: string) => `<div><span>${k}</span>${v}</div>`;
     if (s.nodes.length === 0) {
       this.strip.innerHTML = cell("model", "no llama-server running (embedding servers excluded)");
       return;
     }
+    const tps = s.nodes.reduce((a, n) => a + (n.tokens_per_s ?? 0), 0);
+    const flow = s.links.reduce((a, l) => a + l.bytes_out_per_s + l.bytes_in_per_s, 0);
+    const held = s.nodes.reduce((a, n) => a + n.mem_model + n.mem_context + n.mem_compute, 0);
+    // one model cell per source, the primary's first; the request cell is the primary's slot
+    const models = s.sources.map((src, i) => cell(i === 0 ? "model" : `model · ${src.id}`, `${src.model.name} · ${(src.model.n_ctx / 1024).toFixed(0)}k ctx · ${src.model.build}` + (src.model.structure?.n_layer ? ` · ${src.model.structure.n_layer} layers${src.model.structure.n_expert ? ` · ${src.model.structure.n_expert_used}/${src.model.structure.n_expert} experts` : ""}` : ""))).join("");
+    const slot = s.nodes.find((n) => n.primary)?.slot;
+    const prog = slot && slot.n_prompt > 0 ? `${Math.min(100, Math.round(slot.n_processed / slot.n_prompt * 100))} %` : "";
     this.strip.innerHTML =
-      cell("model", `${s.model.name} · ${(s.model.n_ctx / 1024).toFixed(0)}k ctx · ${s.model.build}`) +
-      (s.model.structure?.n_layer ? cell("structure", `${s.model.structure.n_layer} layers · ${s.model.structure.n_expert ? `${s.model.structure.n_expert_used}/${s.model.structure.n_expert} experts · ` : ""}${s.model.structure.params ?? ""}`) : "") +
+      models +
       cell("held", `${fmtB(held)} across ${s.nodes.length} node${s.nodes.length === 1 ? "" : "s"}`) +
       cell("tokens/s", tps.toFixed(1)) +
       cell("link", fmtRate(flow)) +

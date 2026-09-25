@@ -1,9 +1,9 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import type { Link, Node, Snapshot } from "./types";
+import type { Link, View, ViewNode } from "./types";
 
 const PARTICLE_BYTES = 4 * 1048576; // one grain per 4 MiB held
-// The primary is blue; each RPC node takes the next distinct hue in --rpc order.
+// The primary is blue; every other node, RPC or another host's server, takes the next distinct hue.
 const PRIMARY = 0x7fb7ff;
 const NODE_COLOURS = [0xffb36b, 0x8ce99a, 0xf78fb3, 0xc3a6ff, 0xffe27a, 0x7fe3e0];
 
@@ -70,9 +70,9 @@ export class Blob {
   private shown = 0;
   private spin = 0;
 
-  constructor(node: Node, index: number, tex: THREE.Texture, glow: THREE.Texture) {
+  constructor(node: ViewNode, index: number, tex: THREE.Texture, glow: THREE.Texture) {
     this.id = node.id;
-    const tint = node.kind === "rpc" ? NODE_COLOURS[index % NODE_COLOURS.length] : PRIMARY;
+    const tint = node.primary ? PRIMARY : NODE_COLOURS[index % NODE_COLOURS.length];
     this.colour = tint;
     this.grains = points(tex, tint, 3.2, 30000);
     // The same grains as the shells, packed densely enough to read as a body.
@@ -88,7 +88,7 @@ export class Blob {
     this.resize(node);
   }
 
-  resize(node: Node) {
+  resize(node: ViewNode) {
     const held = node.mem_model + node.mem_context + node.mem_compute;
     const want = Math.max(400, Math.min(30000, Math.round(held / PARTICLE_BYTES)));
     this.radius = 60 + 110 * Math.sqrt(Math.max(held, 1) / (64 * 1073741824));
@@ -293,12 +293,12 @@ export class Scene {
     return hits.length ? (hits[0].object.userData.id as string) : null;
   }
 
-  // The primary at the centre; the RPC nodes on a sphere around it in --rpc order, azimuth advancing by the
-  // golden angle and elevation staggered between +35 and -35 degrees, so two are never collinear with the
-  // centre and more keep filling the space rather than a line.
-  private layout() {
+  // The primary at the centre; every other node on a sphere around it in snapshot order, azimuth advancing
+  // by the golden angle and elevation staggered between +35 and -35 degrees, so two are never collinear
+  // with the centre and more keep filling the space rather than a line.
+  private layout(primaryId: string | undefined) {
     const list = [...this.blobs.values()];
-    const primary = list.find((b) => b.id === "local") ?? list[0];
+    const primary = list.find((b) => b.id === primaryId) ?? list[0];
     const others = list.filter((b) => b !== primary);
     const gap = Math.max(...list.map((b) => b.radius)) * 2.8;
     primary?.group.position.set(0, 0, 0);
@@ -313,11 +313,11 @@ export class Scene {
     if (!this.placed) { this.placed = true; this.camera.position.set(0, this.baseDist * 0.42, this.baseDist * 0.9); this.controls.saveState(); }
   }
 
-  apply(s: Snapshot) {
+  apply(s: View) {
     for (const n of s.nodes) {
       let b = this.blobs.get(n.id);
       if (!b) {
-        const index = s.nodes.filter((x) => x.kind === "rpc").findIndex((x) => x.id === n.id);
+        const index = s.nodes.filter((x) => !x.primary).findIndex((x) => x.id === n.id);
         b = new Blob(n, Math.max(0, index), this.tex, this.glow);
         this.blobs.set(n.id, b);
         this.scene.add(b.group);
@@ -325,12 +325,11 @@ export class Scene {
       b.layers = n.layers ?? null;
       b.resize(n);
       b.activity = this.activityOf(n, s.links);
-      const server = s.nodes.find((x) => x.kind === "llama-server");
-      // the KV cache holds the prompt and every token generated so far; llama.cpp keeps it between requests
-      b.ctxFill = server?.slot && s.model.n_ctx ? Math.min(1, (server.slot.n_prompt + (server.slot.n_decoded ?? 0)) / s.model.n_ctx) : 0;
+      b.ctxFill = n.ctx_fill;
     }
     for (const id of [...this.blobs.keys()]) if (!s.nodes.some((n) => n.id === id)) { this.scene.remove(this.blobs.get(id)!.group); this.blobs.delete(id); }
-    this.layout();
+    for (let i = this.streams.length - 1; i >= 0; i--) if (!this.blobs.has(this.streams[i].from.id) || !this.blobs.has(this.streams[i].to.id)) { this.scene.remove(this.streams[i].points); this.streams.splice(i, 1); }
+    this.layout(s.nodes.find((n) => n.primary)?.id);
     for (const l of s.links) {
       let st = this.streams.find((x) => x.from.id === l.from && x.to.id === l.to);
       if (!st) {
@@ -345,7 +344,7 @@ export class Scene {
     }
   }
 
-  private activityOf(n: Node, links: Link[]): number {
+  private activityOf(n: ViewNode, links: Link[]): number {
     if (n.kind === "llama-server") return (n.requests_processing ?? 0) > 0 || (n.tokens_per_s ?? 0) > 0 ? 1 : 0;
     const flow = links.filter((l) => l.to === n.id).reduce((a, l) => a + l.bytes_out_per_s + l.bytes_in_per_s, 0);
     return Math.min(1, flow / 5e5);

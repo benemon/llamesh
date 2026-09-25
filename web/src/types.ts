@@ -32,9 +32,12 @@ export interface Link {
   stale?: boolean;
 }
 
+export interface Model { path: string; name: string; n_ctx: number; build: string; structure: Structure }
+
 export interface Snapshot {
   t: number;
-  model: { path: string; name: string; n_ctx: number; build: string; structure: Structure };
+  source: string; // hostname of the collector's host
+  model: Model;
   nodes: Node[];
   links: Link[];
   totals: { tokens_predicted: number; prompt_tokens: number; mem_held: number };
@@ -55,7 +58,23 @@ export interface Structure {
   n_ctx_train?: number;
 }
 
-export interface Topology {
-  nodes: Pick<Node, "id" | "kind" | "device" | "label">[];
-  links: Pick<Link, "from" | "to" | "iface">[];
+
+// What the page draws: every source's nodes in one space. Ids are namespaced by source so two hosts'
+// "local" nodes never collide; the address a node had in its own snapshot is kept for display.
+export interface ViewNode extends Node {
+  source: string;
+  address: string;
+  primary: boolean; // the llama-server of the source serving this page: the centre of the picture
+  n_ctx: number;
+  n_layer?: number;
+  ctx_fill: number; // this node's source: prompt plus generated tokens over the context window
+  server_slot?: Slot;
+}
+
+export interface View {
+  t: number;
+  sources: { id: string; model: Model; stale: boolean }[];
+  nodes: ViewNode[];
+  links: Link[];
+  totals: { tokens_predicted: number; prompt_tokens: number; mem_held: number };
 }

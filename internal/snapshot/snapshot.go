@@ -56,6 +56,7 @@ type Totals struct {
 
 type Snapshot struct {
 	T      float64 `json:"t"`
+	Source string  `json:"source"` // hostname of the collector's host; the page keys sources by it
 	Model  Model   `json:"model"`
 	Nodes  []Node  `json:"nodes"`
 	Links  []Link  `json:"links"`
@@ -130,7 +131,7 @@ func (c *Collector) build(metrics map[string]float64, slot llamaserver.Slot, ser
 			byEndpoint[d.Endpoint] = d
 		}
 	}
-	s := Snapshot{T: float64(now.UnixNano()) / 1e9, Nodes: []Node{}, Links: []Link{}} // never null: the page iterates both
+	s := Snapshot{T: float64(now.UnixNano()) / 1e9, Source: c.Local, Nodes: []Node{}, Links: []Link{}} // lists never null: the page iterates both
 	s.Model = Model{Path: c.props.ModelPath, Name: strings.TrimSuffix(filepath.Base(c.props.ModelPath), ".gguf"), NCtx: c.props.NCtx, Build: c.props.Build, Structure: split.Info}
 	// layer ranges in device order: MTL0 first, then the RPC devices as listed
 	ordered := []loadlog.Device{}

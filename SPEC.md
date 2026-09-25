@@ -1,8 +1,9 @@
 # llamesh
 
-A live picture of a llama.cpp mesh: one llama-server and the RPC nodes it splits a model across. A particle blob per
-process sized by the memory it holds, streams between them carrying the bytes that move, a click for
-each blob's metrics, and the combined figures along the bottom. Run it beside a llama-server; it discovers everything, including which server.
+A live picture of a llama.cpp mesh: the llama-servers on the hosts you name and the RPC nodes they split
+models across. A particle blob per process sized by the memory it holds, streams between them carrying the
+bytes that move, a click for each blob's metrics, and the combined figures along the bottom. Run a collector
+beside each llama-server; each discovers everything on its host, including which server.
 
 ## Sources, all read on the host running llama-server (verified against b10566, 2026-09-24)
 
@@ -47,13 +48,25 @@ print per-device buffer sizes, so neither is read.
 
 ## Collector (Go, one binary, runs beside llama-server)
 
-No config file. Nothing the page shows comes from configuration; the collector's own two parameters are
-flags with defaults: `-listen 127.0.0.1:8899` and `-poll 1s`. A third, `-target http://127.0.0.1:PORT`,
-is needed only when discovery is ambiguous.
+Nothing the page shows comes from configuration. The collector's own parameters are flags with defaults:
+`-listen 127.0.0.1:8899` and `-poll 1s`; `-target http://127.0.0.1:PORT` is needed only when discovery is
+ambiguous. The one file, `-sources path.yaml`, is routing, in the way a Prometheus scrape list is:
+
+```yaml
+sources:
+  - http://10.0.0.2:8899
+```
+
+names the other collectors whose streams this collector's page composes. It proxies each under
+`/api/sources/<host:port>/stream` (and `/topology`), so the browser talks to one origin even when the
+sources sit on a Thunderbolt bridge it cannot reach, and `GET /api/sources` lists the keys. A source's
+hostname, model and figures all come from its own snapshot; the file carries none of them.
 
 Target discovery: the `llama-server` processes listening on TCP (`lsof -nP -iTCP -sTCP:LISTEN` filtered
 by command name), excluding any whose command line carries `--embeddings`. Exactly one left is the target;
-none or several is a startup error naming them, resolved with `-target`. From the target's pid, all read
+none, with exactly one embedding server listening, makes that the target (a host serving only an embedder);
+otherwise a startup error naming them, resolved with `-target`. A target that exits is dropped and the
+next server to listen is bound; with none the collector waits and publishes an empty picture. From the target's pid, all read
 by the same user with no privilege: its command line (`ps -o command= -p PID`) gives `--api-key`, `--rpc`,
 `-m` and `--port`; its file descriptor 2 (`lsof -p PID -a -d 2`) gives the log the memory breakdown is read
 from (verified 2026-09-24: `/Users/.../Library/Logs/home.example.gpt-oss-20b.err`, the LaunchAgent's
@@ -63,7 +76,7 @@ Endpoints: `GET /` the SPA (embedded); `GET /api/topology` nodes and links as di
 `GET /api/stream` Server-Sent Events, one JSON snapshot per poll:
 
 ```json
-{"t": 1727170000.0,
+{"t": 1727170000.0, "source": "orion",
  "model": {"path": "...gguf", "name": "gpt-oss-120b-F16", "n_ctx": 131072, "build": "b10566-bb4caa754"},
  "nodes": [
    {"id": "local", "kind": "llama-server", "device": "MTL0", "label": "orion",
@@ -121,8 +134,11 @@ previous value and sets `"stale": true` on the affected node or link; a node tha
 - One stream per link: particles travelling along the curve from `from` to `to` at a rate proportional
   to `bytes_out_per_s`, and back for `bytes_in_per_s`. A weight upload reads as a torrent one way,
   prefill as a burst, generation as a steady trickle both ways.
-- Layout: nodes on a horizontal line, local left, RPC nodes right in `--rpc` order; resizes with the
-  window.
+- The page subscribes to its own collector's stream and to every key `GET /api/sources` lists, and
+  composes one view: node ids namespaced by source, the page's own llama-server the primary at the
+  centre, every other node (RPC nodes, other hosts' servers) on a sphere around it, one model cell per
+  source in the strip, context fill per source. A source whose stream drops keeps its last picture,
+  stale, until it leaves the list; the list is re-read every 30 s.
 - Click a blob: a panel with every field of that node from the latest snapshot. Each field has a
   tick; ticked fields render as a label attached to the blob and persist in `localStorage` per node id.
 - Bottom strip: model name, context, build; total held across nodes; total tokens/s; link throughput;
@@ -131,13 +147,16 @@ previous value and sets `"stale": true` on the affected node or link; a node tha
 
 ## Not in the first cut
 
-Multiple llama-servers on one page, GPU utilisation, per-device KV, history or charts, authentication
-of the SPA itself (it sits behind a TLS proxy that authenticates clients).
+Several llama-servers on one host under one collector, GPU utilisation, per-device KV, history or charts,
+authentication of the SPA itself (it sits behind a TLS proxy that authenticates clients).
 
 ## Deployment
 
-Ansible role `llamesh` in lab.example/ansible (play `mini.yml`, tag `llamesh`): copies the binary built
-by `make build` in this repo to `~/.local/bin/llamesh` on the mini and runs it as the LaunchAgent
-`home.example.llamesh` on 127.0.0.1:8899. HAProxy serves it at `https://mini.lab.example:8443/llamesh/`
-(tag `haproxy`). The page uses relative URLs, so it works at `/` and behind the path alike. The collector
-exits when no llama-server is listening and launchd restarts it every 10 s until one is.
+Ansible role `llamesh` in lab.example/ansible (plays `mini.yml` and `mbp.yml`, tag `llamesh`): copies
+the binary built by `make build` in this repo to `~/.local/bin/llamesh` and runs it as the LaunchAgent
+`home.example.llamesh`; `llamesh_listen` is the address (loopback on the mini, the bridge address on the
+MacBook so the mini's collector can reach it) and `llamesh_sources` the URLs written to the sources file.
+HAProxy serves the mini's page at `https://mini.lab.example:8443/llamesh/` (tag `haproxy`). The page
+uses relative URLs, so it works at `/` and behind the path alike. A LaunchAgent reaching another host's
+address needs macOS's Local Network permission granted once for the binary, and a host with the application
+firewall on needs the binary allowed (the MacBook setup play does that with root).

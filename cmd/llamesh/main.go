@@ -2,11 +2,15 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -25,7 +29,18 @@ func main() {
 	listen := flag.String("listen", "127.0.0.1:8899", "address to serve the page and API on")
 	poll := flag.Duration("poll", time.Second, "how often the live sources are read")
 	spec := flag.String("target", "", "llama-server base URL; discovered when exactly one chat server is listening")
+	sourcesPath := flag.String("sources", "", "YAML file listing the other collectors this page composes (sources: [http://host:port, ...])")
 	flag.Parse()
+
+	local := discover.LocalHostName()
+	var sources []source
+	if *sourcesPath != "" {
+		var err error
+		if sources, err = readSources(*sourcesPath); err != nil {
+			log.Fatal(err)
+		}
+		log.Printf("%d source(s) from %s", len(sources), *sourcesPath)
+	}
 
 	var cur atomic.Pointer[target]
 	if t, err := bind(*spec); err != nil {
@@ -60,7 +75,7 @@ func main() {
 				}
 				cur.Store(t)
 			}
-			s := snapshot.Snapshot{T: float64(time.Now().UnixNano()) / 1e9, Nodes: []snapshot.Node{}, Links: []snapshot.Link{}}
+			s := snapshot.Snapshot{T: float64(time.Now().UnixNano()) / 1e9, Source: local, Nodes: []snapshot.Node{}, Links: []snapshot.Link{}}
 			if t != nil {
 				s = t.col.Poll()
 			}
@@ -80,6 +95,27 @@ func main() {
 		json.NewEncoder(w).Encode(top)
 	})
 	mux.HandleFunc("/api/stream", b.serve)
+	mux.HandleFunc("/api/sources", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		keys := []string{}
+		for _, src := range sources {
+			keys = append(keys, src.key)
+		}
+		json.NewEncoder(w).Encode(keys)
+	})
+	// /api/sources/<key>/stream and /topology are the other collectors' endpoints, proxied so the browser
+	// talks to one origin: the sources sit on addresses it cannot reach (a Thunderbolt bridge).
+	mux.HandleFunc("/api/sources/", func(w http.ResponseWriter, r *http.Request) {
+		rest := strings.TrimPrefix(r.URL.Path, "/api/sources/")
+		key, ep, ok := strings.Cut(rest, "/")
+		for _, src := range sources {
+			if ok && src.key == key && (ep == "stream" || ep == "topology") {
+				src.proxy.ServeHTTP(w, r)
+				return
+			}
+		}
+		http.NotFound(w, r)
+	})
 	mux.Handle("/", web.Handler())
 	log.Printf("listening on http://%s", *listen)
 	log.Fatal(http.ListenAndServe(*listen, mux))
@@ -142,19 +178,27 @@ func pickTarget(target string) (pid, port int, err error) {
 		}
 		return 0, 0, fmt.Errorf("no llama-server listening on port %d", p)
 	}
-	var chat []discover.Listener
+	var chat, embed []discover.Listener
 	for _, l := range ls {
 		cl, err := discover.CommandLine(l.PID)
-		if err != nil || discover.ParseArgs(cl).Embeddings {
+		if err != nil {
 			continue
 		}
-		chat = append(chat, l)
+		if discover.ParseArgs(cl).Embeddings {
+			embed = append(embed, l)
+		} else {
+			chat = append(chat, l)
+		}
 	}
 	switch len(chat) {
 	case 1:
 		return chat[0].PID, chat[0].Port, nil
 	case 0:
-		return 0, 0, fmt.Errorf("no llama-server is listening (embedding servers excluded); use -target")
+		// A host that serves only an embedding model is worth a picture too.
+		if len(embed) == 1 {
+			return embed[0].PID, embed[0].Port, nil
+		}
+		return 0, 0, fmt.Errorf("no llama-server is listening (embedding servers excluded unless alone); use -target")
 	}
 	var ports []string
 	for _, l := range chat {
@@ -177,6 +221,46 @@ func refreshTopology(col *snapshot.Collector, args discover.Args) {
 	for ip, name := range discover.Names(ips, 2*time.Second) {
 		col.Names[ip] = name
 	}
+}
+
+// source is another collector whose stream this page composes; its key is the URL's host:port.
+type source struct {
+	key   string
+	proxy *httputil.ReverseProxy
+}
+
+// readSources parses the sources file: a YAML mapping with one key, `sources`, a list of URLs. The file
+// is short enough that a line scanner does, and the module stays on the standard library.
+func readSources(path string) ([]source, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	var out []source
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if !strings.HasPrefix(line, "- ") {
+			continue
+		}
+		raw := strings.Trim(strings.TrimSpace(strings.TrimPrefix(line, "- ")), "\"'")
+		u, err := url.Parse(raw)
+		if err != nil || u.Host == "" {
+			return nil, fmt.Errorf("%s: %q is not a URL", path, raw)
+		}
+		key := u.Host
+		p := httputil.NewSingleHostReverseProxy(u)
+		p.FlushInterval = -1 // the stream is SSE: every event goes out as it arrives
+		dir := p.Director
+		p.Director = func(r *http.Request) {
+			dir(r)
+			r.URL.Path = "/api/" + strings.TrimPrefix(r.URL.Path, "/api/sources/"+key+"/")
+			r.Host = u.Host
+		}
+		out = append(out, source{key: key, proxy: p})
+	}
+	return out, sc.Err()
 }
 
 // broadcaster fans one JSON snapshot per poll out to every SSE client and remembers the last one so a
