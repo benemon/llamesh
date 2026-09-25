@@ -157,8 +157,10 @@ export class Stream {
   }
 
   tick(dt: number) {
-    this.acc.out += dt * Math.min(300, 15 * this.rateOut / 1e6);
-    this.acc.in += dt * Math.min(300, 15 * this.rateIn / 1e6);
+    // 1 MB/s ~ 60 grains/s over a 3 s flight: the ~1 MB/s a three-node link carries in generation reads as
+    // a steady thread; a prefill burst saturates at the cap
+    this.acc.out += dt * Math.min(300, 60 * this.rateOut / 1e6);
+    this.acc.in += dt * Math.min(300, 60 * this.rateIn / 1e6);
     while (this.acc.out >= 1 && this.pool.length < 2000) { this.pool.push({ t: 0, up: true }); this.acc.out -= 1; }
     while (this.acc.in >= 1 && this.pool.length < 2000) { this.pool.push({ t: 0, up: false }); this.acc.in -= 1; }
     const A = this.from.group.position, B = this.to.group.position;

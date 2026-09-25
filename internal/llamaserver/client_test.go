@@ -49,3 +49,10 @@ func TestParseSlots(t *testing.T) {
 		t.Fatalf("got %+v", s)
 	}
 }
+
+func TestParseSlotsDecoded(t *testing.T) {
+	s, err := ParseSlots([]byte(`[{"id":0,"is_processing":true,"n_ctx":131072,"n_prompt_tokens":697,"n_prompt_tokens_cache":0,"n_prompt_tokens_processed":697,"next_token":[{"has_next_token":true,"n_remain":851,"n_decoded":49}]}]`))
+	if err != nil || s.NDecoded != 49 || !s.Processing {
+		t.Fatalf("got %+v, %v", s, err)
+	}
+}

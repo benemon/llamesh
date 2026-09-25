@@ -106,6 +106,7 @@ type Slot struct {
 	NPrompt    int  `json:"n_prompt"`
 	NCached    int  `json:"n_cached"`
 	NProcessed int  `json:"n_processed"`
+	NDecoded   int  `json:"n_decoded"` // tokens generated so far in the request in flight
 }
 
 func (c *Client) Slot() (Slot, error) {
@@ -119,11 +120,12 @@ func (c *Client) Slot() (Slot, error) {
 // ParseSlots reads the first slot; the collector serves single-slot servers.
 func ParseSlots(b []byte) (Slot, error) {
 	var raw []struct {
-		Processing bool `json:"is_processing"`
-		NCtx       int  `json:"n_ctx"`
-		NPrompt    int  `json:"n_prompt_tokens"`
-		NCached    int  `json:"n_prompt_tokens_cache"`
-		NProcessed int  `json:"n_prompt_tokens_processed"`
+		Processing bool            `json:"is_processing"`
+		NCtx       int             `json:"n_ctx"`
+		NPrompt    int             `json:"n_prompt_tokens"`
+		NCached    int             `json:"n_prompt_tokens_cache"`
+		NProcessed int             `json:"n_prompt_tokens_processed"`
+		NextToken  json.RawMessage `json:"next_token"` // a list of one object in b10566; an object in other builds
 	}
 	if err := json.Unmarshal(b, &raw); err != nil {
 		return Slot{}, err
@@ -132,5 +134,16 @@ func ParseSlots(b []byte) (Slot, error) {
 		return Slot{}, fmt.Errorf("no slots")
 	}
 	s := raw[0]
-	return Slot{Processing: s.Processing, NCtx: s.NCtx, NPrompt: s.NPrompt, NCached: s.NCached, NProcessed: s.NProcessed}, nil
+	slot := Slot{Processing: s.Processing, NCtx: s.NCtx, NPrompt: s.NPrompt, NCached: s.NCached, NProcessed: s.NProcessed}
+	type nt struct {
+		NDecoded int `json:"n_decoded"`
+	}
+	var list []nt
+	var one nt
+	if json.Unmarshal(s.NextToken, &list) == nil && len(list) > 0 {
+		slot.NDecoded = list[0].NDecoded
+	} else if json.Unmarshal(s.NextToken, &one) == nil {
+		slot.NDecoded = one.NDecoded
+	}
+	return slot, nil
 }

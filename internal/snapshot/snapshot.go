@@ -78,6 +78,7 @@ type Collector struct {
 	props    llamaserver.Props
 	lastT    time.Time
 	lastM    map[string]float64
+	lastSlot llamaserver.Slot
 	lastLink map[string]link.Counters
 	last     *Snapshot
 }
@@ -164,6 +165,25 @@ func (c *Collector) build(metrics map[string]float64, slot llamaserver.Slot, ser
 		}
 		local.TokensPerS = rate("llamacpp:tokens_predicted_total")
 		local.PromptTokensPerS = rate("llamacpp:prompt_tokens_total")
+		// llamacpp's counters advance when a request completes; while one is in flight the slot's own
+		// progress is the live rate, with a reset (a new request) read as that request's first tokens.
+		if slot.Processing && dt > 0 {
+			live := func(now, prev int) float64 {
+				if now < prev {
+					prev = 0
+				}
+				return float64(now-prev) / dt
+			}
+			g := live(slot.NDecoded, c.lastSlot.NDecoded)
+			p := live(slot.NProcessed, c.lastSlot.NProcessed)
+			if g > 0 || *local.TokensPerS == 0 {
+				local.TokensPerS = &g
+			}
+			if p > 0 || *local.PromptTokensPerS == 0 {
+				local.PromptTokensPerS = &p
+			}
+		}
+		c.lastSlot = slot
 		rp := int(metrics["llamacpp:requests_processing"])
 		local.RequestsProcessing = &rp
 		sl := slot
