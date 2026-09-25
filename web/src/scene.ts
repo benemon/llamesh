@@ -286,16 +286,20 @@ export class Scene {
     return hits.length ? (hits[0].object.userData.id as string) : null;
   }
 
-  // The primary at the centre; the RPC nodes on a ring around it in --rpc order, starting to its right.
+  // The primary at the centre; the RPC nodes on a sphere around it in --rpc order, azimuth advancing by the
+  // golden angle and elevation staggered between +35 and -35 degrees, so two are never collinear with the
+  // centre and more keep filling the space rather than a line.
   private layout() {
     const list = [...this.blobs.values()];
     const primary = list.find((b) => b.id === "local") ?? list[0];
     const others = list.filter((b) => b !== primary);
     const gap = Math.max(...list.map((b) => b.radius)) * 2.8;
     primary?.group.position.set(0, 0, 0);
+    const n = others.length;
     others.forEach((b, i) => {
-      const ang = (i / Math.max(1, others.length)) * Math.PI * 2;
-      b.group.position.set(Math.cos(ang) * gap, 0, Math.sin(ang) * gap);
+      const az = i * 2.39996; // golden angle in radians
+      const el = n > 1 ? (35 * Math.PI / 180) * (1 - (2 * i) / (n - 1)) : 0;
+      b.group.position.set(Math.cos(el) * Math.cos(az) * gap, Math.sin(el) * gap, Math.cos(el) * Math.sin(az) * gap);
     });
     this.baseDist = Math.max(600, gap * 1.9 + (primary?.radius ?? 0));
     // The starting view is set once, on the first layout; snapshots arrive every second and must not move it.
