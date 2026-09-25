@@ -66,6 +66,7 @@ export class Blob {
   layers: [number, number] | null = null;
   activity = 0;
   ctxFill = 0;
+  camDist = 1e9; // camera distance to this node's centre, set by the scene each frame
   private shown = 0;
   private spin = 0;
 
@@ -142,10 +143,16 @@ export class Blob {
       carr[i * 3 + 2] = r * sp * Math.sin(th);
     }
     cpos.needsUpdate = true;
-    (this.core.material as THREE.PointsMaterial).opacity = 0.6 + 0.3 * a + 0.03 * Math.sin(time * 1.5);
+    // Point sprites grow with proximity; up close they would merge into a wall. Shrink them as the camera
+    // approaches and fade the glows away once it is inside, so what is left is grains around the viewer.
+    const near = Math.min(1, Math.max(0.12, this.camDist / (R * 1.5)));
+    const nearCore = Math.min(1, Math.max(0.1, this.camDist / (rc * 4)));
+    (this.grains.material as THREE.PointsMaterial).size = 3.2 * near;
+    (this.core.material as THREE.PointsMaterial).size = 2.6 * nearCore;
+    (this.core.material as THREE.PointsMaterial).opacity = (0.6 + 0.3 * a + 0.03 * Math.sin(time * 1.5)) * (0.4 + 0.6 * nearCore);
     this.coreGlow.scale.set(rc * 3, rc * 3, 1);
-    (this.coreGlow.material as THREE.SpriteMaterial).opacity = 0.1 + 0.15 * a;
-    (this.halo.material as THREE.SpriteMaterial).opacity = 0.22 + 0.25 * a;
+    (this.coreGlow.material as THREE.SpriteMaterial).opacity = (0.1 + 0.15 * a) * Math.min(1, Math.max(0, (this.camDist - rc * 2) / (rc * 4)));
+    (this.halo.material as THREE.SpriteMaterial).opacity = (0.22 + 0.25 * a) * Math.min(1, Math.max(0, (this.camDist - R * 0.6) / (R * 1.4)));
   }
 }
 
@@ -249,7 +256,7 @@ export class Scene {
       this.time += dt;
       this.controls.update();
       for (const s of this.streams) s.tick(dt);
-      for (const b of this.blobs.values()) b.tick(dt, this.time);
+      for (const b of this.blobs.values()) { b.camDist = this.camera.position.distanceTo(b.group.position); b.tick(dt, this.time); }
       this.renderer.render(this.scene, this.camera);
       for (const cb of this.frameCbs) cb();
       requestAnimationFrame(loop);
