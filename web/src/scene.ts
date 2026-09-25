@@ -59,6 +59,7 @@ export class Blob {
   private pick: THREE.Mesh;
   private base: { theta: number; phi: number; w: number; jitter: number; layer: number }[] = [];
   radius = 60;
+  coreCap = 20;   // radius of the context core when the window is full: volume ~ the node's context bytes
   layers: [number, number] | null = null;
   activity = 0;
   ctxFill = 0;
@@ -94,7 +95,9 @@ export class Blob {
     this.base.length = want;
     this.base.forEach((g, i) => { g.layer = Math.min(count - 1, Math.floor(i * count / want)); });
     this.grains.geometry.setDrawRange(0, want);
-    this.capacity.scale.setScalar(this.radius * 0.2);
+    // capacity core radius from the node's context bytes: 1 GiB -> 22 units, volume proportional to bytes
+    this.coreCap = Math.min(this.radius * 0.22, 22 * Math.cbrt(Math.max(node.mem_context, 1) / 1073741824));
+    this.capacity.scale.setScalar(this.coreCap);
     this.halo.scale.set(this.radius * 3.4, this.radius * 3.4, 1);
     this.pick.scale.setScalar(this.radius * 1.1);
   }
@@ -122,7 +125,7 @@ export class Blob {
     pos.needsUpdate = true;
     (this.grains.material as THREE.PointsMaterial).opacity = 0.32 + 0.3 * a;
     // the core's volume is the context in use; it can only grow to the capacity shell
-    const rc = this.radius * 0.2 * Math.cbrt(Math.max(0.01, this.ctxFill));
+    const rc = this.coreCap * Math.cbrt(Math.max(0.01, this.ctxFill));
     const cpos = this.core.geometry.getAttribute("position") as THREE.BufferAttribute;
     const carr = cpos.array as Float32Array;
     for (let i = 0; i < this.coreBase.length; i++) {
