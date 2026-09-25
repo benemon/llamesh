@@ -18,7 +18,7 @@ function fields(n: Node, s?: Snapshot): [string, string][] {
   // llama.cpp numbers layers from 0; people count from 1, so "1–24 of 36" and "25–36 of 36"
   if (n.layers && s?.model.structure?.n_layer) f.push(["layers", `${n.layers[0] + 1}–${n.layers[1] + 1} of ${s.model.structure.n_layer}`]);
   const server = s?.nodes.find((x) => x.kind === "llama-server");
-  if (server?.slot && s?.model.n_ctx) f.push(["context", `${Math.round(server.slot.n_prompt / s.model.n_ctx * 100)} % of ${(s.model.n_ctx / 1024).toFixed(0)}k`]);
+  if (server?.slot && s?.model.n_ctx) f.push(["context", `${Math.round((server.slot.n_prompt + (server.slot.n_decoded ?? 0)) / s.model.n_ctx * 100)} % of ${(s.model.n_ctx / 1024).toFixed(0)}k held`]);
   if (n.kind === "llama-server") {
     f.push(["tokens/s", (n.tokens_per_s ?? 0).toFixed(1)], ["prompt tokens/s", (n.prompt_tokens_per_s ?? 0).toFixed(0)], ["requests", String(n.requests_processing ?? 0)]);
     if (n.slot) f.push(["slot", n.slot.processing ? "processing" : "idle"], ["prompt", `${n.slot.n_processed} / ${n.slot.n_prompt} (${n.slot.n_cached} cached)`]);
@@ -135,7 +135,7 @@ export class UI {
     if (!n) return "";
     const count = n.layers ? n.layers[1] - n.layers[0] + 1 : 1;
     const server = this.last.nodes.find((x) => x.kind === "llama-server");
-    const fill = server?.slot && this.last.model.n_ctx ? server.slot.n_prompt / this.last.model.n_ctx : 0;
+    const fill = server?.slot && this.last.model.n_ctx ? (server.slot.n_prompt + (server.slot.n_decoded ?? 0)) / this.last.model.n_ctx : 0;
     if (d.core) return `<b>${n.label}</b> · context core · ${fmtB(n.mem_context * fill)} of ${fmtB(n.mem_context)} in use (${Math.round(fill * 100)} % of the window)`;
     return `<b>${n.label}</b> · layer ${d.layer! + 1} of ${this.last.model.structure?.n_layer ?? "?"} · ${fmtB(n.mem_model / count)} weights · ${fmtB(n.mem_context / count * fill)} context in use`;
   }

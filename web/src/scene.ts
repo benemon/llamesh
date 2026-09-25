@@ -319,7 +319,8 @@ export class Scene {
       b.resize(n);
       b.activity = this.activityOf(n, s.links);
       const server = s.nodes.find((x) => x.kind === "llama-server");
-      b.ctxFill = server?.slot && s.model.n_ctx ? Math.min(1, server.slot.n_prompt / s.model.n_ctx) : 0;
+      // the KV cache holds the prompt and every token generated so far; llama.cpp keeps it between requests
+      b.ctxFill = server?.slot && s.model.n_ctx ? Math.min(1, (server.slot.n_prompt + (server.slot.n_decoded ?? 0)) / s.model.n_ctx) : 0;
     }
     for (const id of [...this.blobs.keys()]) if (!s.nodes.some((n) => n.id === id)) { this.scene.remove(this.blobs.get(id)!.group); this.blobs.delete(id); }
     this.layout();

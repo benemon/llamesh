@@ -3,6 +3,7 @@ export interface Slot {
   n_prompt: number;
   n_cached: number;
   n_processed: number;
+  n_decoded?: number; // tokens generated so far in the request in flight
 }
 
 export interface Node {
