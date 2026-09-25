@@ -70,6 +70,7 @@ func CommandLine(pid int) (string, error) {
 
 type Args struct {
 	Model  string
+	Host   string // the address the server binds; loopback unless --host says otherwise
 	Port   int
 	APIKey string
 	RPC    []string
@@ -79,7 +80,7 @@ type Args struct {
 // argv tokens; ps joins argv with spaces, and the paths in use carry none.
 func ParseArgs(cmdline string) Args {
 	tok := strings.Fields(cmdline)
-	var a Args
+	a := Args{Host: "127.0.0.1"}
 	next := func(i int) string {
 		if i+1 < len(tok) {
 			return tok[i+1]
@@ -90,6 +91,8 @@ func ParseArgs(cmdline string) Args {
 		switch t {
 		case "-m", "--model":
 			a.Model = next(i)
+		case "--host":
+			a.Host = next(i)
 		case "--port":
 			a.Port, _ = strconv.Atoi(next(i))
 		case "--api-key":

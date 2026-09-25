@@ -191,7 +191,7 @@ func bind(l discover.Listener) (*target, error) {
 		log.Printf("no log to read the memory split from: %v", err)
 	}
 	col := &snapshot.Collector{
-		Client: llamaserver.New("http://127.0.0.1:"+strconv.Itoa(l.Port), args.APIKey),
+		Client: llamaserver.New("http://"+args.Host+":"+strconv.Itoa(l.Port), args.APIKey),
 		Args:   args,
 		Local:  discover.LocalHostName(),
 		Names:  map[string]string{},

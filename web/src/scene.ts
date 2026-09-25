@@ -55,7 +55,7 @@ function points(tex: THREE.Texture, color: number, size: number, capacity: numbe
 export class Blob {
   readonly group = new THREE.Group();
   readonly id: string;
-  readonly colour: number;
+  colour: number;
   private grains: THREE.Points;
   private core: THREE.Points;     // the context in use: a dense ball of the same grains, volume proportional to tokens
   private coreBase: { r: number; theta: number; phi: number }[] = [];
@@ -89,6 +89,16 @@ export class Blob {
     this.pick.userData.id = node.id;
     this.group.add(this.halo, this.grains, this.capacity, this.coreGlow, this.core, this.pick);
     this.resize(node);
+  }
+
+  // The primary is whichever server holds the most on the page's host; a node's role can change after
+  // its blob exists, so the tint follows the snapshot.
+  tint(colour: number) {
+    if (colour === this.colour) return;
+    this.colour = colour;
+    (this.grains.material as THREE.PointsMaterial).color.setHex(colour);
+    (this.capacity.material as THREE.MeshBasicMaterial).color.setHex(colour);
+    (this.halo.material as THREE.SpriteMaterial).color.setHex(colour);
   }
 
   resize(node: ViewNode) {
@@ -352,13 +362,14 @@ export class Scene {
     for (const id of [...this.hosts.keys()]) if (!s.hosts.some((h) => h.id === id)) { this.scene.remove(this.hosts.get(id)!.mesh); this.hosts.delete(id); }
     for (const n of s.nodes) {
       this.hostOf.set(n.id, n.host);
+      const index = Math.max(0, s.nodes.filter((x) => !x.primary).findIndex((x) => x.id === n.id));
       let b = this.blobs.get(n.id);
       if (!b) {
-        const index = s.nodes.filter((x) => !x.primary).findIndex((x) => x.id === n.id);
-        b = new Blob(n, Math.max(0, index), this.tex, this.glow);
+        b = new Blob(n, index, this.tex, this.glow);
         this.blobs.set(n.id, b);
         this.scene.add(b.group);
       }
+      b.tint(n.primary ? PRIMARY : NODE_COLOURS[index % NODE_COLOURS.length]);
       b.layers = n.layers ?? null;
       b.resize(n);
       b.activity = this.activityOf(n, s.links);
