@@ -148,6 +148,10 @@ export class UI {
     const slot = server?.slot;
     const prog = slot && slot.n_prompt > 0 ? `${Math.min(100, Math.round(slot.n_processed / slot.n_prompt * 100))} %` : "";
     const cell = (k: string, v: string) => `<div><span>${k}</span>${v}</div>`;
+    if (s.nodes.length === 0) {
+      this.strip.innerHTML = cell("model", "no llama-server running (embedding servers excluded)");
+      return;
+    }
     this.strip.innerHTML =
       cell("model", `${s.model.name} · ${(s.model.n_ctx / 1024).toFixed(0)}k ctx · ${s.model.build}`) +
       (s.model.structure?.n_layer ? cell("structure", `${s.model.structure.n_layer} layers · ${s.model.structure.n_expert ? `${s.model.structure.n_expert_used}/${s.model.structure.n_expert} experts · ` : ""}${s.model.structure.params ?? ""}`) : "") +

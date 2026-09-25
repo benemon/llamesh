@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/benemon/llamesh/internal/discover"
@@ -23,16 +24,81 @@ import (
 func main() {
 	listen := flag.String("listen", "127.0.0.1:8899", "address to serve the page and API on")
 	poll := flag.Duration("poll", time.Second, "how often the live sources are read")
-	target := flag.String("target", "", "llama-server base URL; discovered when exactly one chat server is listening")
+	spec := flag.String("target", "", "llama-server base URL; discovered when exactly one chat server is listening")
 	flag.Parse()
 
-	pid, port, err := pickTarget(*target)
+	var cur atomic.Pointer[target]
+	if t, err := bind(*spec); err != nil {
+		log.Printf("%v; waiting for one", err)
+	} else {
+		cur.Store(t)
+	}
+
+	b := &broadcaster{subs: map[chan []byte]struct{}{}}
+	go func() {
+		tk := time.NewTicker(*poll)
+		n := 0
+		for range tk.C {
+			n++
+			t := cur.Load()
+			if n%10 == 0 {
+				// The target is one process: when it exits (a model swap, a crash) its topology goes with
+				// it, and the next chat server to listen becomes the target.
+				if t != nil {
+					if cl, err := discover.CommandLine(t.pid); err != nil {
+						log.Printf("target llama-server pid %d has gone; waiting for one", t.pid)
+						t = nil
+					} else if a := discover.ParseArgs(cl); strings.Join(a.RPC, ",") != strings.Join(t.col.Args.RPC, ",") {
+						t.col.Args = a
+						refreshTopology(t.col, a)
+					}
+				}
+				if t == nil {
+					if nt, err := bind(*spec); err == nil {
+						t = nt
+					}
+				}
+				cur.Store(t)
+			}
+			s := snapshot.Snapshot{T: float64(time.Now().UnixNano()) / 1e9, Nodes: []snapshot.Node{}, Links: []snapshot.Link{}}
+			if t != nil {
+				s = t.col.Poll()
+			}
+			if buf, err := json.Marshal(s); err == nil {
+				b.publish(buf)
+			}
+		}
+	}()
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/topology", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		top := snapshot.Topology{Nodes: []snapshot.Node{}, Links: []snapshot.Link{}}
+		if t := cur.Load(); t != nil {
+			top = t.col.Topology()
+		}
+		json.NewEncoder(w).Encode(top)
+	})
+	mux.HandleFunc("/api/stream", b.serve)
+	mux.Handle("/", web.Handler())
+	log.Printf("listening on http://%s", *listen)
+	log.Fatal(http.ListenAndServe(*listen, mux))
+}
+
+// target is the llama-server being watched and the collector built from its command line and log.
+type target struct {
+	pid int
+	col *snapshot.Collector
+}
+
+func bind(spec string) (*target, error) {
+	pid, port, err := pickTarget(spec)
 	if err != nil {
-		log.Fatal(err)
+		return nil, err
 	}
 	cmdline, err := discover.CommandLine(pid)
 	if err != nil {
-		log.Fatal(err)
+		return nil, err
 	}
 	args := discover.ParseArgs(cmdline)
 	logPath, err := discover.LogPath(pid)
@@ -58,37 +124,7 @@ func main() {
 	}
 	refreshTopology(col, args)
 	log.Printf("target llama-server pid %d port %d, %d rpc node(s), log %s", pid, port, len(args.RPC), logPath)
-
-	b := &broadcaster{subs: map[chan []byte]struct{}{}}
-	go func() {
-		t := time.NewTicker(*poll)
-		n := 0
-		for range t.C {
-			n++
-			if n%10 == 0 {
-				if cl, err := discover.CommandLine(pid); err == nil {
-					if a := discover.ParseArgs(cl); strings.Join(a.RPC, ",") != strings.Join(col.Args.RPC, ",") {
-						col.Args = a
-						refreshTopology(col, a)
-					}
-				}
-			}
-			s := col.Poll()
-			if buf, err := json.Marshal(s); err == nil {
-				b.publish(buf)
-			}
-		}
-	}()
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("/api/topology", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(col.Topology())
-	})
-	mux.HandleFunc("/api/stream", b.serve)
-	mux.Handle("/", web.Handler())
-	log.Printf("listening on http://%s", *listen)
-	log.Fatal(http.ListenAndServe(*listen, mux))
+	return &target{pid: pid, col: col}, nil
 }
 
 // pickTarget chooses the llama-server: the -target port if given, else the one listener that is not
