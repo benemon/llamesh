@@ -12,7 +12,7 @@ func TestParseArgsRPC(t *testing.T) {
 	if len(a.RPC) != 1 || a.RPC[0] != "10.0.0.2:50052" {
 		t.Fatalf("rpc: %v", a.RPC)
 	}
-	if !strings.HasSuffix(a.Model, "gpt-oss-20b-F16.gguf") || a.Port != 8896 || a.APIKey != "REDACTED" || a.Embeddings {
+	if !strings.HasSuffix(a.Model, "gpt-oss-20b-F16.gguf") || a.Port != 8896 || a.APIKey != "REDACTED" {
 		t.Fatalf("got %+v", a)
 	}
 }

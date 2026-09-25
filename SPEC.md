@@ -62,11 +62,11 @@ names the other collectors whose streams this collector's page composes. It prox
 sources sit on a Thunderbolt bridge it cannot reach, and `GET /api/sources` lists the keys. A source's
 hostname, model and figures all come from its own snapshot; the file carries none of them.
 
-Target discovery: the `llama-server` processes listening on TCP (`lsof -nP -iTCP -sTCP:LISTEN` filtered
-by command name), excluding any whose command line carries `--embeddings`. Exactly one left is the target;
-none, with exactly one embedding server listening, makes that the target (a host serving only an embedder);
-otherwise a startup error naming them, resolved with `-target`. A target that exits is dropped and the
-next server to listen is bound; with none the collector waits and publishes an empty picture. From the target's pid, all read
+Target discovery: every `llama-server` process listening on TCP (`lsof -nP -iTCP -sTCP:LISTEN` filtered
+by command name) is a target, chat models and embedders alike; `-target http://127.0.0.1:PORT` narrows it
+to one. The listeners are re-read every 10 polls: a server that exits is dropped with its picture, a new
+one is bound. With none the collector waits and publishes an empty picture. Each target's snapshot
+carries `target`, its port; with `source` that is the page's key for one server's picture. From the target's pid, all read
 by the same user with no privilege: its command line (`ps -o command= -p PID`) gives `--api-key`, `--rpc`,
 `-m` and `--port`; its file descriptor 2 (`lsof -p PID -a -d 2`) gives the log the memory breakdown is read
 from (verified 2026-09-24: `/Users/.../Library/Logs/home.example.gpt-oss-20b.err`, the LaunchAgent's
@@ -76,7 +76,7 @@ Endpoints: `GET /` the SPA (embedded); `GET /api/topology` nodes and links as di
 `GET /api/stream` Server-Sent Events, one JSON snapshot per poll:
 
 ```json
-{"t": 1727170000.0, "source": "orion",
+{"t": 1727170000.0, "source": "orion", "target": "8896",
  "model": {"path": "...gguf", "name": "gpt-oss-120b-F16", "n_ctx": 131072, "build": "b10566-bb4caa754"},
  "nodes": [
    {"id": "local", "kind": "llama-server", "device": "MTL0", "label": "orion",
@@ -135,10 +135,18 @@ previous value and sets `"stale": true` on the affected node or link; a node tha
   to `bytes_out_per_s`, and back for `bytes_in_per_s`. A weight upload reads as a torrent one way,
   prefill as a burst, generation as a steady trickle both ways.
 - The page subscribes to its own collector's stream and to every key `GET /api/sources` lists, and
-  composes one view: node ids namespaced by source, the page's own llama-server the primary at the
-  centre, every other node (RPC nodes, other hosts' servers) on a sphere around it, one model cell per
-  source in the strip, context fill per source. A source whose stream drops keeps its last picture,
-  stale, until it leaves the list; the list is re-read every 30 s.
+  composes one view keyed by collector and server port: node ids namespaced by that key, one model cell
+  per server in the strip, context fill per server. The primary is the server on the page's own host
+  holding the most memory. A server that goes quiet is shown stale after 3 s and dropped after 30 s; the
+  source list is re-read every 30 s.
+- Hosts: every node belongs to a machine, a server to its collector's host and an RPC node to the host
+  its discovered name resolves to (the same name the MacBook's collector reports, so its RPC share and
+  its own embedder share one host). Each host is a faint envelope sphere sized by its device's memory,
+  which every server on the device reports identically, with its blobs inside: one at the centre,
+  several on a ring each tangent to the envelope from within. Sizes are volumetric, a 64 GiB body having
+  radius 170, so the dark space between blobs and envelope is the device's headroom.
+- Layout: the primary's host at the centre; other hosts on a sphere around it, azimuth by the golden
+  angle and elevation staggered, so more hosts fill space rather than a line.
 - Click a blob: a panel with every field of that node from the latest snapshot. Each field has a
   tick; ticked fields render as a label attached to the blob and persist in `localStorage` per node id.
 - Bottom strip: model name, context, build; total held across nodes; total tokens/s; link throughput;
@@ -147,8 +155,7 @@ previous value and sets `"stale": true` on the affected node or link; a node tha
 
 ## Not in the first cut
 
-Several llama-servers on one host under one collector, GPU utilisation, per-device KV, history or charts,
-authentication of the SPA itself (it sits behind a TLS proxy that authenticates clients).
+GPU utilisation, per-device KV, history or charts, authentication of the SPA itself (it sits behind a TLS proxy that authenticates clients).
 
 ## Deployment
 

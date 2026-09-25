@@ -56,7 +56,8 @@ type Totals struct {
 
 type Snapshot struct {
 	T      float64 `json:"t"`
-	Source string  `json:"source"` // hostname of the collector's host; the page keys sources by it
+	Source string  `json:"source"` // hostname of the collector's host
+	Target string  `json:"target"` // the llama-server's port; with Source, the page's key for this picture
 	Model  Model   `json:"model"`
 	Nodes  []Node  `json:"nodes"`
 	Links  []Link  `json:"links"`

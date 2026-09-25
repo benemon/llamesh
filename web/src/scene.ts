@@ -3,6 +3,9 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import type { Link, View, ViewNode } from "./types";
 
 const PARTICLE_BYTES = 4 * 1048576; // one grain per 4 MiB held
+// Sizes are volumetric so bodies compare honestly: a 64 GiB body has radius 170, and two 32 GiB blobs
+// together have its volume. A host's envelope is its device's memory; the blobs inside are what is held.
+const radiusOf = (bytes: number) => Math.max(24, 170 * Math.cbrt(Math.max(bytes, 0) / (64 * 1073741824)));
 // The primary is blue; every other node, RPC or another host's server, takes the next distinct hue.
 const PRIMARY = 0x7fb7ff;
 const NODE_COLOURS = [0xffb36b, 0x8ce99a, 0xf78fb3, 0xc3a6ff, 0xffe27a, 0x7fe3e0];
@@ -91,7 +94,7 @@ export class Blob {
   resize(node: ViewNode) {
     const held = node.mem_model + node.mem_context + node.mem_compute;
     const want = Math.max(400, Math.min(30000, Math.round(held / PARTICLE_BYTES)));
-    this.radius = 60 + 110 * Math.sqrt(Math.max(held, 1) / (64 * 1073741824));
+    this.radius = radiusOf(held);
     const count = this.layers ? this.layers[1] - this.layers[0] + 1 : 1;
     while (this.base.length < want) {
       // uniform on a sphere: theta around the axis, phi from the pole
@@ -205,6 +208,19 @@ export class Stream {
   }
 }
 
+// A machine: a faint shell at the size of its device's memory, with the blobs it holds arranged inside.
+class Host {
+  readonly mesh: THREE.Mesh;
+  radius = 24;
+  constructor(readonly id: string) {
+    this.mesh = new THREE.Mesh(new THREE.SphereGeometry(1, 64, 40), new THREE.MeshBasicMaterial({ color: 0x9fbbe0, transparent: true, opacity: 0.035, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+  }
+  resize(memTotal: number) {
+    this.radius = radiusOf(memTotal);
+    this.mesh.scale.setScalar(this.radius);
+  }
+}
+
 export class Scene {
   readonly canvas = document.createElement("canvas");
   private renderer!: THREE.WebGLRenderer;
@@ -218,6 +234,8 @@ export class Scene {
   private baseDist = 800;
   private placed = false;
   blobs = new Map<string, Blob>();
+  hosts = new Map<string, Host>();
+  private hostOf = new Map<string, string>(); // blob id -> host id
   streams: Stream[] = [];
   onPick: (id: string) => void = () => {};
   dragged = false;
@@ -293,28 +311,47 @@ export class Scene {
     return hits.length ? (hits[0].object.userData.id as string) : null;
   }
 
-  // The primary at the centre; every other node on a sphere around it in snapshot order, azimuth advancing
-  // by the golden angle and elevation staggered between +35 and -35 degrees, so two are never collinear
-  // with the centre and more keep filling the space rather than a line.
+  // The primary's host at the centre; every other host on a sphere around it, azimuth advancing by the
+  // golden angle and elevation staggered between +35 and -35 degrees, so two are never collinear with the
+  // centre and more keep filling the space rather than a line. Within a host, one blob sits at the centre;
+  // several sit on a ring inside the envelope, each tangent to it from within.
   private layout(primaryId: string | undefined) {
-    const list = [...this.blobs.values()];
-    const primary = list.find((b) => b.id === primaryId) ?? list[0];
-    const others = list.filter((b) => b !== primary);
-    const gap = Math.max(...list.map((b) => b.radius)) * 2.8;
-    primary?.group.position.set(0, 0, 0);
+    const hostList = [...this.hosts.values()];
+    const primaryHost = primaryId ? this.hosts.get(this.hostOf.get(primaryId)!) : undefined;
+    const centre = primaryHost ?? hostList[0];
+    const others = hostList.filter((h) => h !== centre);
+    const gap = Math.max(...hostList.map((h) => h.radius), 1) * 2.6;
+    centre?.mesh.position.set(0, 0, 0);
     const n = others.length;
-    others.forEach((b, i) => {
+    others.forEach((h, i) => {
       const az = i * 2.39996; // golden angle in radians
       const el = n > 1 ? (35 * Math.PI / 180) * (1 - (2 * i) / (n - 1)) : 0;
-      b.group.position.set(Math.cos(el) * Math.cos(az) * gap, Math.sin(el) * gap, Math.cos(el) * Math.sin(az) * gap);
+      h.mesh.position.set(Math.cos(el) * Math.cos(az) * gap, Math.sin(el) * gap, Math.cos(el) * Math.sin(az) * gap);
     });
-    this.baseDist = Math.max(600, gap * 1.9 + (primary?.radius ?? 0));
+    for (const h of hostList) {
+      const members = [...this.blobs.values()].filter((b) => this.hostOf.get(b.id) === h.id);
+      if (members.length === 1) { members[0].group.position.copy(h.mesh.position); continue; }
+      members.forEach((b, i) => {
+        const ring = Math.max(0, h.radius - b.radius); // tangent to the envelope from within: a small model sits out at the edge, a big one near the middle
+        const az = (i / members.length) * Math.PI * 2;
+        const el = (i % 2 ? -1 : 1) * 0.35;
+        b.group.position.set(h.mesh.position.x + Math.cos(el) * Math.cos(az) * ring, h.mesh.position.y + Math.sin(el) * ring, h.mesh.position.z + Math.cos(el) * Math.sin(az) * ring);
+      });
+    }
+    this.baseDist = Math.max(600, (n > 0 ? gap * 1.9 : 0) + (centre?.radius ?? 0) * 3.2);
     // The starting view is set once, on the first layout; snapshots arrive every second and must not move it.
     if (!this.placed) { this.placed = true; this.camera.position.set(0, this.baseDist * 0.42, this.baseDist * 0.9); this.controls.saveState(); }
   }
 
   apply(s: View) {
+    for (const h of s.hosts) {
+      let host = this.hosts.get(h.id);
+      if (!host) { host = new Host(h.id); this.hosts.set(h.id, host); this.scene.add(host.mesh); }
+      host.resize(h.mem_total);
+    }
+    for (const id of [...this.hosts.keys()]) if (!s.hosts.some((h) => h.id === id)) { this.scene.remove(this.hosts.get(id)!.mesh); this.hosts.delete(id); }
     for (const n of s.nodes) {
+      this.hostOf.set(n.id, n.host);
       let b = this.blobs.get(n.id);
       if (!b) {
         const index = s.nodes.filter((x) => !x.primary).findIndex((x) => x.id === n.id);
@@ -327,7 +364,7 @@ export class Scene {
       b.activity = this.activityOf(n, s.links);
       b.ctxFill = n.ctx_fill;
     }
-    for (const id of [...this.blobs.keys()]) if (!s.nodes.some((n) => n.id === id)) { this.scene.remove(this.blobs.get(id)!.group); this.blobs.delete(id); }
+    for (const id of [...this.blobs.keys()]) if (!s.nodes.some((n) => n.id === id)) { this.scene.remove(this.blobs.get(id)!.group); this.blobs.delete(id); this.hostOf.delete(id); }
     for (let i = this.streams.length - 1; i >= 0; i--) if (!this.blobs.has(this.streams[i].from.id) || !this.blobs.has(this.streams[i].to.id)) { this.scene.remove(this.streams[i].points); this.streams.splice(i, 1); }
     this.layout(s.nodes.find((n) => n.primary)?.id);
     for (const l of s.links) {

@@ -149,7 +149,7 @@ export class UI {
     const flow = s.links.reduce((a, l) => a + l.bytes_out_per_s + l.bytes_in_per_s, 0);
     const held = s.nodes.reduce((a, n) => a + n.mem_model + n.mem_context + n.mem_compute, 0);
     // one model cell per source, the primary's first; the request cell is the primary's slot
-    const models = s.sources.map((src, i) => cell(i === 0 ? "model" : `model · ${src.id}`, `${src.model.name} · ${(src.model.n_ctx / 1024).toFixed(0)}k ctx · ${src.model.build}` + (src.model.structure?.n_layer ? ` · ${src.model.structure.n_layer} layers${src.model.structure.n_expert ? ` · ${src.model.structure.n_expert_used}/${src.model.structure.n_expert} experts` : ""}` : ""))).join("");
+    const models = s.sources.map((src, i) => cell(i === 0 ? "model" : `model · ${src.host}:${src.id.slice(src.id.lastIndexOf("/") + 1)}`, `${src.model.name} · ${(src.model.n_ctx / 1024).toFixed(0)}k ctx · ${src.model.build}` + (src.model.structure?.n_layer ? ` · ${src.model.structure.n_layer} layers${src.model.structure.n_expert ? ` · ${src.model.structure.n_expert_used}/${src.model.structure.n_expert} experts` : ""}` : ""))).join("");
     const slot = s.nodes.find((n) => n.primary)?.slot;
     const prog = slot && slot.n_prompt > 0 ? `${Math.min(100, Math.round(slot.n_processed / slot.n_prompt * 100))} %` : "";
     this.strip.innerHTML =

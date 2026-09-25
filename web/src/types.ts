@@ -37,6 +37,7 @@ export interface Model { path: string; name: string; n_ctx: number; build: strin
 export interface Snapshot {
   t: number;
   source: string; // hostname of the collector's host
+  target: string; // the llama-server's port on that host
   model: Model;
   nodes: Node[];
   links: Link[];
@@ -63,6 +64,7 @@ export interface Structure {
 // "local" nodes never collide; the address a node had in its own snapshot is kept for display.
 export interface ViewNode extends Node {
   source: string;
+  host: string;     // the machine holding this node: the source's hostname for a server, the discovered name for an RPC node
   address: string;
   primary: boolean; // the llama-server of the source serving this page: the centre of the picture
   n_ctx: number;
@@ -73,7 +75,8 @@ export interface ViewNode extends Node {
 
 export interface View {
   t: number;
-  sources: { id: string; model: Model; stale: boolean }[];
+  sources: { id: string; host: string; model: Model; stale: boolean }[];
+  hosts: { id: string; mem_total: number }[]; // one per machine holding nodes; mem_total is its device's memory
   nodes: ViewNode[];
   links: Link[];
   totals: { tokens_predicted: number; prompt_tokens: number; mem_held: number };

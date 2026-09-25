@@ -69,11 +69,10 @@ func CommandLine(pid int) (string, error) {
 }
 
 type Args struct {
-	Model      string
-	Port       int
-	APIKey     string
-	RPC        []string
-	Embeddings bool
+	Model  string
+	Port   int
+	APIKey string
+	RPC    []string
 }
 
 // ParseArgs reads the llama-server flags the collector needs from a ps command line. Values are single
@@ -101,8 +100,6 @@ func ParseArgs(cmdline string) Args {
 					a.RPC = append(a.RPC, s)
 				}
 			}
-		case "--embeddings", "--embedding":
-			a.Embeddings = true
 		}
 	}
 	return a
