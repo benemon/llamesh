@@ -155,7 +155,12 @@ type Follower struct {
 	split  Split
 }
 
-// Open scans the tail of the file for the current split, then follows from the end.
+// startMarker is the first line a llama-server run writes at -lv 4; the current load's facts follow it.
+const startMarker = "common_params_print_info: verbosity"
+
+// Open parses the current load's lines, from the last server start to the end, then follows from the end.
+// The structure lines come early in a load and the memory tables late, with thousands of Metal
+// kernel-compile lines between, so the window is found by searching backwards for the start marker.
 func Open(path string) (*Follower, error) {
 	f := &Follower{path: path}
 	file, err := os.Open(path)
@@ -167,10 +172,7 @@ func Open(path string) (*Follower, error) {
 	if err != nil {
 		return nil, err
 	}
-	start := st.Size() - 2*MiB
-	if start < 0 {
-		start = 0
-	}
+	start := lastMarker(file, st.Size())
 	if _, err := file.Seek(start, io.SeekStart); err != nil {
 		return nil, err
 	}
@@ -181,6 +183,37 @@ func Open(path string) (*Follower, error) {
 	f.split = Parse(string(b))
 	f.offset = st.Size()
 	return f, nil
+}
+
+// lastMarker returns the offset of the last start marker within the final 512 MiB, else the start of that
+// window.
+func lastMarker(file *os.File, size int64) int64 {
+	const chunk = 4 * MiB
+	limit := size - 512*MiB
+	if limit < 0 {
+		limit = 0
+	}
+	buf := make([]byte, chunk+256)
+	for end := size; end > limit; {
+		start := end - chunk
+		if start < limit {
+			start = limit
+		}
+		n, err := file.ReadAt(buf[:end-start], start)
+		if err != nil && err != io.EOF {
+			return limit
+		}
+		if i := strings.LastIndex(string(buf[:n]), startMarker); i >= 0 {
+			// back up to the line start
+			j := strings.LastIndexByte(string(buf[:i]), '\n')
+			return start + int64(j+1)
+		}
+		end = start + 256 // overlap so a marker split across chunks is still found
+		if start == limit {
+			break
+		}
+	}
+	return limit
 }
 
 func (f *Follower) Latest() Split {

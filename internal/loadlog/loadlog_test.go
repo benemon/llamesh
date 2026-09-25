@@ -2,6 +2,7 @@ package loadlog
 
 import (
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -58,5 +59,26 @@ func TestStructureAndLayers(t *testing.T) {
 	r := LayerRanges(devs, s.Info.NLayer)
 	if r[0] != [2]int{0, 15} || r[1] != [2]int{16, 23} {
 		t.Fatalf("ranges %v", r)
+	}
+}
+
+func TestOpenFindsTheCurrentLoad(t *testing.T) {
+	b, _ := os.ReadFile("../../testdata/server-lv4.log")
+	// two loads back to back with 3 MB of noise between the second load's start and its tables
+	noise := strings.Repeat("ggml_metal_library_compile_pipeline: loaded kernel_x 0x1 | th_max = 1024 | th_width = 32\n", 3*MiB/90)
+	text := string(b) + strings.Replace(string(b), "n_layer               = 24", "n_layer               = 24", 1)
+	parts := strings.SplitN(string(b), "load_tensors:", 2)
+	text = string(b) + parts[0] + noise + "load_tensors:" + parts[1]
+	tmp := t.TempDir() + "/server.err"
+	if err := os.WriteFile(tmp, []byte(text), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f, err := Open(tmp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sp := f.Latest()
+	if sp.Info.NLayer != 24 || len(sp.Devices) == 0 {
+		t.Fatalf("structure not read across the noise: n_layer %d, devices %d", sp.Info.NLayer, len(sp.Devices))
 	}
 }
