@@ -83,8 +83,6 @@ type Collector struct {
 	last     *Snapshot
 }
 
-func (c *Collector) SetProps(p llamaserver.Props) { c.props = p }
-
 func (c *Collector) Topology() Topology {
 	s := c.build(nil, llamaserver.Slot{}, false, nil)
 	for i := range s.Nodes {
@@ -96,6 +94,12 @@ func (c *Collector) Topology() Topology {
 // Poll reads the live sources once and returns the snapshot. A source that fails keeps its previous
 // values and marks what it feeds as stale.
 func (c *Collector) Poll() Snapshot {
+	// /props answers 503 while the model loads; keep asking until it answers.
+	if c.props.NCtx == 0 {
+		if p, err := c.Client.Props(); err == nil {
+			c.props = p
+		}
+	}
 	metrics, merr := c.Client.Metrics()
 	slot, serr := c.Client.Slot()
 	counters := map[string]link.Counters{}
@@ -126,7 +130,7 @@ func (c *Collector) build(metrics map[string]float64, slot llamaserver.Slot, ser
 			byEndpoint[d.Endpoint] = d
 		}
 	}
-	s := Snapshot{T: float64(now.UnixNano()) / 1e9}
+	s := Snapshot{T: float64(now.UnixNano()) / 1e9, Nodes: []Node{}, Links: []Link{}} // never null: the page iterates both
 	s.Model = Model{Path: c.props.ModelPath, Name: strings.TrimSuffix(filepath.Base(c.props.ModelPath), ".gguf"), NCtx: c.props.NCtx, Build: c.props.Build, Structure: split.Info}
 	// layer ranges in device order: MTL0 first, then the RPC devices as listed
 	ordered := []loadlog.Device{}

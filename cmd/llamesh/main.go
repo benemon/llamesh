@@ -117,11 +117,6 @@ func bind(spec string) (*target, error) {
 			log.Printf("log %s: %v", logPath, err)
 		}
 	}
-	if p, err := col.Client.Props(); err == nil {
-		col.SetProps(p)
-	} else {
-		log.Printf("props: %v", err)
-	}
 	refreshTopology(col, args)
 	log.Printf("target llama-server pid %d port %d, %d rpc node(s), log %s", pid, port, len(args.RPC), logPath)
 	return &target{pid: pid, col: col}, nil
