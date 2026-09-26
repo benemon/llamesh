@@ -65,6 +65,9 @@ export class Blob {
   private pick: THREE.Mesh;
   private base: { theta: number; phi: number; w: number; jitter: number; layer: number }[] = [];
   radius = 60;
+  sourceKey = "";
+  dim = 1;        // 1 lit, towards 0 faded: another source is being explored
+  private dimShown = 1;
   coreCap = 20;   // radius of the context core when the window is full: volume ~ the node's context bytes
   layers: [number, number] | null = null;
   activity = 0;
@@ -122,6 +125,8 @@ export class Blob {
 
   tick(dt: number, time: number) {
     this.shown += (this.activity - this.shown) * Math.min(1, dt / 3);
+    this.dimShown += (this.dim - this.dimShown) * Math.min(1, dt / 0.35);
+    const dim = this.dimShown;
     const a = this.shown;
     const R = this.radius * (1 - 0.25 * a);
     const count = this.layers ? this.layers[1] - this.layers[0] + 1 : 1;
@@ -141,7 +146,7 @@ export class Blob {
       arr[i * 3 + 2] = r * sp * Math.sin(th);
     }
     pos.needsUpdate = true;
-    (this.grains.material as THREE.PointsMaterial).opacity = 0.32 + 0.3 * a;
+    (this.grains.material as THREE.PointsMaterial).opacity = (0.32 + 0.3 * a) * dim;
     // the core's volume is the context in use; it can only grow to the capacity shell
     const rc = this.coreCap * Math.cbrt(Math.max(0.01, this.ctxFill));
     const cpos = this.core.geometry.getAttribute("position") as THREE.BufferAttribute;
@@ -162,10 +167,11 @@ export class Blob {
     const nearCore = Math.min(1, Math.max(0.1, this.camDist / (rc * 4)));
     (this.grains.material as THREE.PointsMaterial).size = 3.2 * near;
     (this.core.material as THREE.PointsMaterial).size = 2.6 * nearCore;
-    (this.core.material as THREE.PointsMaterial).opacity = (0.6 + 0.3 * a + 0.03 * Math.sin(time * 1.5)) * (0.4 + 0.6 * nearCore);
+    (this.core.material as THREE.PointsMaterial).opacity = (0.6 + 0.3 * a + 0.03 * Math.sin(time * 1.5)) * (0.4 + 0.6 * nearCore) * dim * dim; // packed and additive: fades harder than the shells
     this.coreGlow.scale.set(rc * 3, rc * 3, 1);
-    (this.coreGlow.material as THREE.SpriteMaterial).opacity = (0.1 + 0.15 * a) * Math.min(1, Math.max(0, (this.camDist - rc * 2) / (rc * 4)));
-    (this.halo.material as THREE.SpriteMaterial).opacity = (0.22 + 0.25 * a) * Math.min(1, Math.max(0, (this.camDist - R * 0.6) / (R * 1.4)));
+    (this.coreGlow.material as THREE.SpriteMaterial).opacity = (0.1 + 0.15 * a) * Math.min(1, Math.max(0, (this.camDist - rc * 2) / (rc * 4))) * dim;
+    (this.halo.material as THREE.SpriteMaterial).opacity = (0.22 + 0.25 * a) * Math.min(1, Math.max(0, (this.camDist - R * 0.6) / (R * 1.4))) * dim;
+    (this.capacity.material as THREE.MeshBasicMaterial).opacity = 0.04 * dim;
   }
 }
 
@@ -184,6 +190,7 @@ export class Stream {
   }
 
   tick(dt: number) {
+    (this.points.material as THREE.PointsMaterial).opacity = 0.9 * Math.min(this.from.dim, this.to.dim);
     // 1 MB/s ~ 60 grains/s over a 3 s flight: the ~1 MB/s a three-node link carries in generation reads as
     // a steady thread; a prefill burst saturates at the cap
     this.acc.out += dt * Math.min(300, 60 * this.rateOut / 1e6);
@@ -222,12 +229,18 @@ export class Stream {
 class Host {
   readonly mesh: THREE.Mesh;
   radius = 24;
+  dim = 1;
+  private dimShown = 1;
   constructor(readonly id: string) {
     this.mesh = new THREE.Mesh(new THREE.SphereGeometry(1, 64, 40), new THREE.MeshBasicMaterial({ color: 0x9fbbe0, transparent: true, opacity: 0.035, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
   }
   resize(memTotal: number) {
     this.radius = radiusOf(memTotal);
     this.mesh.scale.setScalar(this.radius);
+  }
+  tick(dt: number) {
+    this.dimShown += (this.dim - this.dimShown) * Math.min(1, dt / 0.35);
+    (this.mesh.material as THREE.MeshBasicMaterial).opacity = 0.035 * (0.25 + 0.75 * this.dimShown);
   }
 }
 
@@ -246,6 +259,7 @@ export class Scene {
   blobs = new Map<string, Blob>();
   hosts = new Map<string, Host>();
   private hostOf = new Map<string, string>(); // blob id -> host id
+  private focused: string | null = null;
   streams: Stream[] = [];
   onPick: (id: string) => void = () => {};
   dragged = false;
@@ -285,6 +299,7 @@ export class Scene {
       this.controls.update();
       for (const s of this.streams) s.tick(dt);
       for (const b of this.blobs.values()) { b.camDist = this.camera.position.distanceTo(b.group.position); b.tick(dt, this.time); }
+      for (const h of this.hosts.values()) h.tick(dt);
       this.renderer.render(this.scene, this.camera);
       for (const cb of this.frameCbs) cb();
       requestAnimationFrame(loop);
@@ -293,6 +308,14 @@ export class Scene {
   }
 
   onFrame(cb: () => void) { this.frameCbs.push(cb); }
+
+  // Explore one server's picture: everything from other sources fades, and a host stays lit only while
+  // it holds something of the focused source. null lights everything.
+  focus(sourceKey: string | null) {
+    this.focused = sourceKey;
+    for (const b of this.blobs.values()) b.dim = sourceKey === null || b.sourceKey === sourceKey ? 1 : 0.12;
+    for (const h of this.hosts.values()) h.dim = sourceKey === null || [...this.blobs.values()].some((b) => this.hostOf.get(b.id) === h.id && b.sourceKey === sourceKey) ? 1 : 0.12;
+  }
 
   // How far in the viewer has come, relative to the starting distance; the page reveals detail past ~1.8.
   get zoom() { return this.baseDist / Math.max(1, this.camera.position.distanceTo(this.controls.target)); }
@@ -370,6 +393,7 @@ export class Scene {
         this.scene.add(b.group);
       }
       b.tint(n.primary ? PRIMARY : NODE_COLOURS[index % NODE_COLOURS.length]);
+      b.sourceKey = n.sourceKey;
       b.layers = n.layers ?? null;
       b.resize(n);
       b.activity = this.activityOf(n, s.links);
@@ -378,6 +402,7 @@ export class Scene {
     for (const id of [...this.blobs.keys()]) if (!s.nodes.some((n) => n.id === id)) { this.scene.remove(this.blobs.get(id)!.group); this.blobs.delete(id); this.hostOf.delete(id); }
     for (let i = this.streams.length - 1; i >= 0; i--) if (!this.blobs.has(this.streams[i].from.id) || !this.blobs.has(this.streams[i].to.id)) { this.scene.remove(this.streams[i].points); this.streams.splice(i, 1); }
     this.layout(s.nodes.find((n) => n.primary)?.id);
+    this.focus(this.focused); // nodes may have come or gone
     for (const l of s.links) {
       let st = this.streams.find((x) => x.from.id === l.from && x.to.id === l.to);
       if (!st) {

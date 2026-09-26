@@ -20,6 +20,9 @@ body.stale #stage { filter: grayscale(0.8) brightness(0.6); }
 #strip { position: fixed; left: 0; right: 0; bottom: 0; display: flex; flex-wrap: wrap; gap: 10px 28px; padding: 12px 20px; background: linear-gradient(transparent, #0a0c11 40%); font-variant-numeric: tabular-nums; }
 #strip div { white-space: nowrap; }
 #strip div span { display: block; color: var(--dim); font-size: 11px; text-transform: uppercase; letter-spacing: .08em; }
+#strip div b { font-weight: inherit; }
+#strip div.model { cursor: pointer; border-radius: 6px; margin: -4px -8px; padding: 4px 8px; }
+#strip div.model:hover, #strip div.model.pinned { background: var(--panel); }
 #status { position: fixed; top: 12px; left: 16px; color: #ffb36b; }
 #depth { position: fixed; top: 14px; left: 50%; transform: translateX(-50%); padding: 8px 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; backdrop-filter: blur(6px); color: var(--dim); white-space: nowrap; max-width: calc(100vw - 32px); overflow: hidden; text-overflow: ellipsis; }
 #depth:empty { display: none; }

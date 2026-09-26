@@ -35,7 +35,7 @@ export function compose(snaps: Map<string, Arrival>, primaryPrefix: string, now 
       // an RPC node's label is its discovered hostname; a node that stayed RPC0 is a host of its own
       const host = n.kind === "llama-server" ? s.source : (n.label.startsWith("RPC") ? `${key}/${n.id}` : n.label);
       hosts.set(host, Math.max(hosts.get(host) ?? 0, n.mem_total));
-      v.nodes.push({ ...n, id: `${key}/${n.id}`, address: n.id, source: s.source, host, primary: primary && n.kind === "llama-server", n_ctx: s.model.n_ctx, n_layer: s.model.structure?.n_layer, ctx_fill: fill, server_slot: server?.slot, stale: n.stale || quiet });
+      v.nodes.push({ ...n, id: `${key}/${n.id}`, address: n.id, source: s.source, sourceKey: key, host, primary: primary && n.kind === "llama-server", n_ctx: s.model.n_ctx, n_layer: s.model.structure?.n_layer, ctx_fill: fill, server_slot: server?.slot, stale: n.stale || quiet });
     }
     for (const l of s.links) v.links.push({ ...l, from: `${key}/${l.from}`, to: `${key}/${l.to}` });
     v.totals.tokens_predicted += s.totals.tokens_predicted;

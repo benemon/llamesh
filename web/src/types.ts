@@ -64,6 +64,7 @@ export interface Structure {
 // "local" nodes never collide; the address a node had in its own snapshot is kept for display.
 export interface ViewNode extends Node {
   source: string;
+  sourceKey: string; // the picture this node belongs to (collector and port), the key of a strip cell
   host: string;     // the machine holding this node: the source's hostname for a server, the discovered name for an RPC node
   address: string;
   primary: boolean; // the llama-server of the source serving this page: the centre of the picture
