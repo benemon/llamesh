@@ -1,4 +1,4 @@
-// llamesh: a live picture of a llama.cpp mesh. Run it on a host with llama-servers; it discovers the rest.
+// Command llamesh serves a live picture of the llama-servers on its host.
 package main
 
 import (
@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -42,17 +43,16 @@ func main() {
 		log.Printf("%d source(s) from %s", len(sources), *sourcesPath)
 	}
 
-	var cur atomic.Pointer[[]*target]
-	empty := []*target{}
-	cur.Store(&empty)
+	var cur atomic.Pointer[[]*target] // nil until the first scan
 	rescan := func() {
 		ls, err := listeners(*spec)
 		if err != nil {
 			log.Printf("listeners: %v", err)
 			return
 		}
+		prev := cur.Load()
 		next := []*target{}
-		for _, t := range *cur.Load() {
+		for _, t := range deref(prev) {
 			// A target is one process: when it exits (a model swap, a crash) its picture goes with it.
 			if cl, err := discover.CommandLine(t.pid); err != nil {
 				log.Printf("target llama-server pid %d (port %d) has gone", t.pid, t.port)
@@ -71,21 +71,18 @@ func main() {
 			if known {
 				continue
 			}
-			if t, err := bind(l); err == nil {
+			if t, err := bind(l, local); err == nil {
 				next = append(next, t)
 			} else {
 				log.Printf("bind pid %d port %d: %v", l.PID, l.Port, err)
 			}
 		}
-		if len(next) == 0 && len(*cur.Load()) > 0 {
+		if len(next) == 0 && (prev == nil || len(*prev) > 0) {
 			log.Printf("no llama-server is listening; waiting for one")
 		}
 		cur.Store(&next)
 	}
 	rescan()
-	if len(*cur.Load()) == 0 {
-		log.Printf("no llama-server is listening; waiting for one")
-	}
 
 	b := &broadcaster{subs: map[chan []byte]struct{}{}}
 	go func() {
@@ -96,7 +93,7 @@ func main() {
 			if n%10 == 0 {
 				rescan()
 			}
-			ts := *cur.Load()
+			ts := deref(cur.Load())
 			if len(ts) == 0 {
 				s := snapshot.Snapshot{T: float64(time.Now().UnixNano()) / 1e9, Source: local, Nodes: []snapshot.Node{}, Links: []snapshot.Link{}}
 				if buf, err := json.Marshal(s); err == nil {
@@ -115,15 +112,6 @@ func main() {
 	}()
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/api/topology", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		out := []map[string]any{}
-		for _, t := range *cur.Load() {
-			top := t.col.Topology()
-			out = append(out, map[string]any{"target": strconv.Itoa(t.port), "nodes": top.Nodes, "links": top.Links})
-		}
-		json.NewEncoder(w).Encode(out)
-	})
 	mux.HandleFunc("/api/stream", b.serve)
 	mux.HandleFunc("/api/sources", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -133,13 +121,13 @@ func main() {
 		}
 		json.NewEncoder(w).Encode(keys)
 	})
-	// /api/sources/<key>/stream and /topology are the other collectors' endpoints, proxied so the browser
-	// talks to one origin: the sources sit on addresses it cannot reach (a Thunderbolt bridge).
+	// /api/sources/<key>/stream is the other collector's stream, proxied so the browser talks to one
+	// origin: the sources sit on addresses it cannot reach (a Thunderbolt bridge).
 	mux.HandleFunc("/api/sources/", func(w http.ResponseWriter, r *http.Request) {
 		rest := strings.TrimPrefix(r.URL.Path, "/api/sources/")
 		key, ep, ok := strings.Cut(rest, "/")
 		for _, src := range sources {
-			if ok && src.key == key && (ep == "stream" || ep == "topology") {
+			if ok && src.key == key && ep == "stream" {
 				src.proxy.ServeHTTP(w, r)
 				return
 			}
@@ -180,7 +168,14 @@ func listeners(spec string) ([]discover.Listener, error) {
 	return out, nil
 }
 
-func bind(l discover.Listener) (*target, error) {
+func deref(p *[]*target) []*target {
+	if p == nil {
+		return nil
+	}
+	return *p
+}
+
+func bind(l discover.Listener, local string) (*target, error) {
 	cmdline, err := discover.CommandLine(l.PID)
 	if err != nil {
 		return nil, err
@@ -193,7 +188,7 @@ func bind(l discover.Listener) (*target, error) {
 	col := &snapshot.Collector{
 		Client: llamaserver.New("http://"+args.Host+":"+strconv.Itoa(l.Port), args.APIKey),
 		Args:   args,
-		Local:  discover.LocalHostName(),
+		Local:  local,
 		Names:  map[string]string{},
 		Ifaces: map[string]string{},
 	}
@@ -210,7 +205,11 @@ func bind(l discover.Listener) (*target, error) {
 func refreshTopology(col *snapshot.Collector, args discover.Args) {
 	var ips []string
 	for _, addr := range args.RPC {
-		host := addr[:strings.LastIndexByte(addr, ':')]
+		host, _, err := net.SplitHostPort(addr)
+		if err != nil {
+			log.Printf("rpc address %q: %v", addr, err)
+			continue
+		}
 		ips = append(ips, host)
 		if iface, err := link.Interface(host); err == nil {
 			col.Ifaces[addr] = iface

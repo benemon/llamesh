@@ -26,13 +26,12 @@ export interface Node {
 export interface Link {
   from: string;
   to: string;
-  iface: string;
   bytes_out_per_s: number;
   bytes_in_per_s: number;
   stale?: boolean;
 }
 
-export interface Model { path: string; name: string; n_ctx: number; build: string; structure: Structure }
+export interface Model { name: string; n_ctx: number; build: string; structure: Structure }
 
 export interface Snapshot {
   t: number;
@@ -41,24 +40,17 @@ export interface Snapshot {
   model: Model;
   nodes: Node[];
   links: Link[];
-  totals: { tokens_predicted: number; prompt_tokens: number; mem_held: number };
+  totals: { tokens_predicted: number; mem_held: number };
 }
 
 export interface Structure {
-  arch?: string;
-  name?: string;
-  type?: string;
-  params?: string;
   n_layer?: number;
-  n_embd?: number;
-  n_head?: number;
-  n_head_kv?: number;
   n_expert?: number;
   n_expert_used?: number;
-  n_vocab?: number;
-  n_ctx_train?: number;
 }
 
+// Layers a node holds, from its contiguous range; a node without a range is drawn as one layer.
+export const layerCount = (layers?: [number, number] | null) => layers ? layers[1] - layers[0] + 1 : 1;
 
 // What the page draws: every source's nodes in one space. Ids are namespaced by source so two hosts'
 // "local" nodes never collide; the address a node had in its own snapshot is kept for display.
@@ -77,10 +69,9 @@ export interface ViewNode extends Node {
 }
 
 export interface View {
-  t: number;
   sources: { id: string; host: string; model: Model; stale: boolean }[];
   hosts: { id: string; mem_total: number }[]; // one per machine holding nodes; mem_total is its device's memory
   nodes: ViewNode[];
   links: Link[];
-  totals: { tokens_predicted: number; prompt_tokens: number; mem_held: number };
+  totals: { tokens_predicted: number; mem_held: number };
 }

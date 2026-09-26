@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import type { Link, View, ViewNode } from "./types";
+import { layerCount, type Link, type View, type ViewNode } from "./types";
 
 const PARTICLE_BYTES = 4 * 1048576; // one grain per 4 MiB held
 // Sizes are volumetric so bodies compare honestly: a 64 GiB body has radius 170, and two 32 GiB blobs
@@ -9,17 +9,21 @@ const radiusOf = (bytes: number) => Math.max(24, 170 * Math.cbrt(Math.max(bytes,
 // The primary is blue; every other node, RPC or another host's server, takes the next distinct hue.
 const PRIMARY = 0x7fb7ff;
 const NODE_COLOURS = [0xffb36b, 0x8ce99a, 0xf78fb3, 0xc3a6ff, 0xffe27a, 0x7fe3e0];
+// Additive light on a dark ground, or ink on a light one: the same hues, darkened, blended normally.
+let dark = true;
+const blending = () => dark ? THREE.AdditiveBlending : THREE.NormalBlending;
+const shade = (hex: number) => dark ? hex : new THREE.Color(hex).multiplyScalar(0.45).getHex();
+const CORE = () => dark ? 0xfff3dc : 0x3a4256;
+const ENVELOPE = () => dark ? 0x9fbbe0 : 0x2d3a55;
+const GROUND = () => dark ? 0x0a0c11 : 0xf3f5f9;
 
-// A soft round sprite for every grain, drawn with Canvas 2D at the device resolution.
-function grainTexture(): THREE.Texture {
-  const size = 64;
+// A radial white falloff: the grain sprite (small, sharp) and the glow (large, soft).
+function radialTexture(size: number, stops: [number, number][]): THREE.Texture {
   const c = document.createElement("canvas");
   c.width = c.height = size;
   const ctx = c.getContext("2d")!;
   const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
-  g.addColorStop(0, "rgba(255,255,255,1)");
-  g.addColorStop(0.5, "rgba(255,255,255,0.8)");
-  g.addColorStop(1, "rgba(255,255,255,0)");
+  for (const [at, alpha] of stops) g.addColorStop(at, `rgba(255,255,255,${alpha})`);
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, size, size);
   const t = new THREE.CanvasTexture(c);
@@ -27,24 +31,10 @@ function grainTexture(): THREE.Texture {
   return t;
 }
 
-function glowTexture(): THREE.Texture {
-  const size = 256;
-  const c = document.createElement("canvas");
-  c.width = c.height = size;
-  const ctx = c.getContext("2d")!;
-  const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
-  g.addColorStop(0, "rgba(255,255,255,0.7)");
-  g.addColorStop(0.4, "rgba(255,255,255,0.18)");
-  g.addColorStop(1, "rgba(255,255,255,0)");
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, size, size);
-  return new THREE.CanvasTexture(c);
-}
-
 function points(tex: THREE.Texture, color: number, size: number, capacity: number): THREE.Points {
   const geo = new THREE.BufferGeometry();
   geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(capacity * 3), 3));
-  const mat = new THREE.PointsMaterial({ map: tex, color, size, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true });
+  const mat = new THREE.PointsMaterial({ map: tex, color, size, transparent: true, opacity: 0.5, blending: blending(), depthWrite: false, sizeAttenuation: true });
   const p = new THREE.Points(geo, mat);
   p.frustumCulled = false;
   return p;
@@ -52,7 +42,7 @@ function points(tex: THREE.Texture, color: number, size: number, capacity: numbe
 
 // A node is a sphere of concentric shells, one per transformer layer it holds, the first layer innermost:
 // one body from afar, separate shells once the camera is among them. The context cache is the core.
-export class Blob {
+class Blob {
   readonly group = new THREE.Group();
   readonly id: string;
   colour: number;
@@ -68,7 +58,7 @@ export class Blob {
   sourceKey = "";
   dim = 1;        // 1 lit, towards 0 faded: another source is being explored
   private dimShown = 1;
-  coreCap = 20;   // radius of the context core when the window is full: volume ~ the node's context bytes
+  private coreCap = 20;   // radius of the context core when the window is full: volume ~ the node's context bytes
   layers: [number, number] | null = null;
   activity = 0;
   ctxFill = 0;
@@ -80,12 +70,12 @@ export class Blob {
     this.id = node.id;
     const tint = node.primary ? PRIMARY : NODE_COLOURS[index % NODE_COLOURS.length];
     this.colour = tint;
-    this.grains = points(tex, tint, 3.2, 30000);
+    this.grains = points(tex, shade(tint), 3.2, 30000);
     // The same grains as the shells, packed densely enough to read as a body.
-    this.core = points(tex, 0xfff3dc, 2.6, 8000);
+    this.core = points(tex, CORE(), 2.6, 8000);
     (this.core.material as THREE.PointsMaterial).opacity = 0.75;
     for (let i = 0; i < 8000; i++) this.coreBase.push({ r: Math.cbrt(Math.random()), theta: Math.random() * Math.PI * 2, phi: Math.acos(2 * Math.random() - 1) });
-    this.capacity = new THREE.Mesh(new THREE.SphereGeometry(1, 48, 32), new THREE.MeshBasicMaterial({ color: tint, transparent: true, opacity: 0.04, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+    this.capacity = new THREE.Mesh(new THREE.SphereGeometry(1, 48, 32), new THREE.MeshBasicMaterial({ color: shade(tint), transparent: true, opacity: 0.04, blending: blending(), depthWrite: false, side: THREE.DoubleSide }));
     this.coreGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glow, color: 0xffd9a8, transparent: true, opacity: 0.18, blending: THREE.AdditiveBlending, depthWrite: false }));
     this.halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: glow, color: tint, transparent: true, opacity: 0.35, blending: THREE.AdditiveBlending, depthWrite: false }));
     this.pick = new THREE.Mesh(new THREE.SphereGeometry(1, 12, 12), new THREE.MeshBasicMaterial({ visible: false }));
@@ -94,21 +84,30 @@ export class Blob {
     this.resize(node);
   }
 
-  // The primary is whichever server holds the most on the page's host; a node's role can change after
-  // its blob exists, so the tint follows the snapshot.
+  // A node's role can change after its blob exists, so the tint follows the snapshot.
   tint(colour: number) {
     if (colour === this.colour) return;
     this.colour = colour;
-    (this.grains.material as THREE.PointsMaterial).color.setHex(colour);
-    (this.capacity.material as THREE.MeshBasicMaterial).color.setHex(colour);
-    (this.halo.material as THREE.SpriteMaterial).color.setHex(colour);
+    this.retheme();
+  }
+
+  retheme() {
+    (this.grains.material as THREE.PointsMaterial).color.setHex(shade(this.colour));
+    (this.grains.material as THREE.PointsMaterial).blending = blending();
+    (this.core.material as THREE.PointsMaterial).color.setHex(CORE());
+    (this.core.material as THREE.PointsMaterial).blending = blending();
+    (this.capacity.material as THREE.MeshBasicMaterial).color.setHex(shade(this.colour));
+    (this.capacity.material as THREE.MeshBasicMaterial).blending = blending();
+    (this.halo.material as THREE.SpriteMaterial).color.setHex(this.colour);
+    this.halo.visible = this.coreGlow.visible = dark; // additive glows have no meaning on a light ground
+    for (const m of [this.grains.material, this.core.material, this.capacity.material] as THREE.Material[]) m.needsUpdate = true;
   }
 
   resize(node: ViewNode) {
     const held = node.mem_model + node.mem_context + node.mem_compute;
     const want = Math.max(400, Math.min(30000, Math.round(held / PARTICLE_BYTES)));
     this.radius = radiusOf(held);
-    const count = this.layers ? this.layers[1] - this.layers[0] + 1 : 1;
+    const count = layerCount(this.layers);
     while (this.base.length < want) {
       // uniform on a sphere: theta around the axis, phi from the pole
       this.base.push({ theta: Math.random() * Math.PI * 2, phi: Math.acos(2 * Math.random() - 1), w: 0.6 + Math.random() * 0.8, jitter: (Math.random() - 0.5) * 0.35, layer: 0 });
@@ -129,7 +128,7 @@ export class Blob {
     const dim = this.dimShown;
     const a = this.shown;
     const R = this.radius * (1 - 0.25 * a);
-    const count = this.layers ? this.layers[1] - this.layers[0] + 1 : 1;
+    const count = layerCount(this.layers);
     this.spin += dt * 0.05 * (1 + a * 0.6);
     const pos = this.grains.geometry.getAttribute("position") as THREE.BufferAttribute;
     const arr = pos.array as Float32Array;
@@ -176,7 +175,7 @@ export class Blob {
 }
 
 // Grains travelling along an arc between two nodes: out above, in below, at a rate set by bytes per second.
-export class Stream {
+class Stream {
   readonly points: THREE.Points;
   private pool: { t: number; up: boolean }[] = [];
   private acc = { out: 0, in: 0 };
@@ -184,13 +183,21 @@ export class Stream {
   rateIn = 0;
   constructor(tex: THREE.Texture, readonly from: Blob, readonly to: Blob) {
     this.points = points(tex, 0xffffff, 4.5, 2000);
+    this.retheme();
     (this.points.material as THREE.PointsMaterial).opacity = 0.9;
     this.points.geometry.setAttribute("color", new THREE.BufferAttribute(new Float32Array(2000 * 3), 3));
     (this.points.material as THREE.PointsMaterial).vertexColors = true;
   }
 
+  retheme() {
+    const mat = this.points.material as THREE.PointsMaterial;
+    mat.blending = blending(); mat.needsUpdate = true;
+  }
+
   tick(dt: number) {
-    (this.points.material as THREE.PointsMaterial).opacity = 0.9 * Math.min(this.from.dim, this.to.dim);
+    const mat = this.points.material as THREE.PointsMaterial;
+    mat.opacity = 0.9 * Math.min(this.from.dim, this.to.dim);
+    mat.size = 0.025 * (this.from.radius + this.to.radius); // grains sized with the bodies they join, so the arc reads at any layout scale
     // 1 MB/s ~ 60 grains/s over a 3 s flight: the ~1 MB/s a three-node link carries in generation reads as
     // a steady thread; a prefill burst saturates at the cap
     this.acc.out += dt * Math.min(300, 60 * this.rateOut / 1e6);
@@ -203,7 +210,7 @@ export class Stream {
     const pos = this.points.geometry.getAttribute("position") as THREE.BufferAttribute;
     const col = this.points.geometry.getAttribute("color") as THREE.BufferAttribute;
     const parr = pos.array as Float32Array, carr = col.array as Float32Array;
-    const cOut = new THREE.Color(this.from.colour), cIn = new THREE.Color(this.to.colour);
+    const cOut = new THREE.Color(shade(this.from.colour)), cIn = new THREE.Color(shade(this.to.colour));
     let k = 0;
     for (let i = this.pool.length - 1; i >= 0; i--) {
       const p = this.pool[i];
@@ -232,7 +239,11 @@ class Host {
   dim = 1;
   private dimShown = 1;
   constructor(readonly id: string) {
-    this.mesh = new THREE.Mesh(new THREE.SphereGeometry(1, 64, 40), new THREE.MeshBasicMaterial({ color: 0x9fbbe0, transparent: true, opacity: 0.035, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+    this.mesh = new THREE.Mesh(new THREE.SphereGeometry(1, 64, 40), new THREE.MeshBasicMaterial({ color: ENVELOPE(), transparent: true, opacity: 0.035, blending: blending(), depthWrite: false, side: THREE.DoubleSide }));
+  }
+  retheme() {
+    const m = this.mesh.material as THREE.MeshBasicMaterial;
+    m.color.setHex(ENVELOPE()); m.blending = blending(); m.needsUpdate = true;
   }
   resize(memTotal: number) {
     this.radius = radiusOf(memTotal);
@@ -250,24 +261,24 @@ export class Scene {
   private scene = new THREE.Scene();
   private camera!: THREE.PerspectiveCamera;
   private controls!: OrbitControls;
-  private tex = grainTexture();
-  private glow = glowTexture();
+  private tex = radialTexture(64, [[0, 1], [0.5, 0.8], [1, 0]]);
+  private glow = radialTexture(256, [[0, 0.7], [0.4, 0.18], [1, 0]]);
   private frameCbs: (() => void)[] = [];
   private time = 0;
   private baseDist = 800;
   private placed = false;
   blobs = new Map<string, Blob>();
-  hosts = new Map<string, Host>();
+  private hosts = new Map<string, Host>();
   private hostOf = new Map<string, string>(); // blob id -> host id
   private focused: string | null = null;
-  streams: Stream[] = [];
+  private streams: Stream[] = [];
   onPick: (id: string) => void = () => {};
   dragged = false;
 
   async init(el: HTMLElement) {
     this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: true, alpha: false });
     this.renderer.setPixelRatio(Math.min(3, window.devicePixelRatio || 1));
-    this.renderer.setClearColor(0x0a0c11);
+    this.renderer.setClearColor(GROUND());
     el.appendChild(this.canvas);
     this.scene.add(new THREE.HemisphereLight(0xffffff, 0x223044, 0.9));
     const key = new THREE.DirectionalLight(0xffffff, 1.4);
@@ -309,8 +320,16 @@ export class Scene {
 
   onFrame(cb: () => void) { this.frameCbs.push(cb); }
 
+  theme(isDark: boolean) {
+    dark = isDark;
+    this.renderer.setClearColor(GROUND());
+    for (const b of this.blobs.values()) b.retheme();
+    for (const h of this.hosts.values()) h.retheme();
+    for (const s of this.streams) s.retheme();
+  }
+
   // Explore one server's picture: everything from other sources fades, and a host stays lit only while
-  // it holds something of the focused source. null lights everything.
+  // it holds something of the focused source.
   focus(sourceKey: string | null) {
     this.focused = sourceKey;
     for (const b of this.blobs.values()) b.dim = sourceKey === null || b.sourceKey === sourceKey ? 1 : 0.12;
@@ -344,10 +363,8 @@ export class Scene {
     return hits.length ? (hits[0].object.userData.id as string) : null;
   }
 
-  // The primary's host at the centre; every other host on a sphere around it, azimuth advancing by the
-  // golden angle and elevation staggered between +35 and -35 degrees, so two are never collinear with the
-  // centre and more keep filling the space rather than a line. Within a host, one blob sits at the centre;
-  // several sit on a ring inside the envelope, each tangent to it from within.
+  // Hosts on a sphere around the primary's, azimuth by the golden angle and elevation staggered, so two
+  // are never collinear with the centre.
   private layout(primaryId: string | undefined) {
     const hostList = [...this.hosts.values()];
     const primaryHost = primaryId ? this.hosts.get(this.hostOf.get(primaryId)!) : undefined;
@@ -430,7 +447,7 @@ export class Scene {
       const R = b.radius;
       if (d >= R) continue;
       if (d < R * 0.24) return { id: b.id, layer: null, core: true };
-      const count = b.layers ? b.layers[1] - b.layers[0] + 1 : 1;
+      const count = layerCount(b.layers);
       const idx = Math.min(count - 1, Math.floor((d - R * 0.24) / ((R * 0.76) / count)));
       return { id: b.id, layer: (b.layers ? b.layers[0] : 0) + idx, core: false };
     }

@@ -1,5 +1,4 @@
-// Package discover reads everything about the llama-server from the host it runs on: which process,
-// its arguments, its log, and the names of the nodes it splits a model across. Nothing is configured.
+// Package discover reads the llama-server's process, arguments, log and node names from the host.
 package discover
 
 import (
@@ -69,9 +68,7 @@ func CommandLine(pid int) (string, error) {
 }
 
 type Args struct {
-	Model  string
 	Host   string // the address the server binds; loopback unless --host says otherwise
-	Port   int
 	APIKey string
 	RPC    []string
 }
@@ -89,12 +86,8 @@ func ParseArgs(cmdline string) Args {
 	}
 	for i, t := range tok {
 		switch t {
-		case "-m", "--model":
-			a.Model = next(i)
 		case "--host":
 			a.Host = next(i)
-		case "--port":
-			a.Port, _ = strconv.Atoi(next(i))
 		case "--api-key":
 			a.APIKey = next(i)
 		case "--rpc":
@@ -132,9 +125,8 @@ func LocalHostName() string {
 
 var srvLine = regexp.MustCompile(`\sSRV\s+\d+\s+\d+\s+\d+\s+(\S+?)\.?\s`)
 
-// Names maps IP addresses to the Bonjour hostnames advertising on the local links: the service types
-// visible are enumerated, each browsed for SRV targets, and every target resolved over mDNS. dns-sd
-// never exits on its own, so each call gets a window and is killed.
+// Names maps IP addresses to the Bonjour hostnames advertising on the local links. dns-sd never exits on
+// its own, so each call gets a window and is killed.
 func Names(ips []string, window time.Duration) map[string]string {
 	want := map[string]bool{}
 	for _, ip := range ips {

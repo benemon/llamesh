@@ -3,6 +3,7 @@
 package snapshot
 
 import (
+	"net"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -50,7 +51,6 @@ type Link struct {
 
 type Totals struct {
 	TokensPredicted float64 `json:"tokens_predicted"`
-	PromptTokens    float64 `json:"prompt_tokens"`
 	MemHeld         int64   `json:"mem_held"`
 }
 
@@ -62,11 +62,6 @@ type Snapshot struct {
 	Nodes  []Node  `json:"nodes"`
 	Links  []Link  `json:"links"`
 	Totals Totals  `json:"totals"`
-}
-
-type Topology struct {
-	Nodes []Node `json:"nodes"`
-	Links []Link `json:"links"`
 }
 
 // Collector holds the discovered target and the previous poll's counters.
@@ -83,14 +78,6 @@ type Collector struct {
 	lastSlot llamaserver.Slot
 	lastLink map[string]link.Counters
 	last     *Snapshot
-}
-
-func (c *Collector) Topology() Topology {
-	s := c.build(nil, llamaserver.Slot{}, false, nil)
-	for i := range s.Nodes {
-		s.Nodes[i].TokensPerS, s.Nodes[i].PromptTokensPerS, s.Nodes[i].RequestsProcessing, s.Nodes[i].Slot = nil, nil, nil, nil
-	}
-	return Topology{Nodes: s.Nodes, Links: s.Links}
 }
 
 // Poll reads the live sources once and returns the snapshot. A source that fails keeps its previous
@@ -122,8 +109,8 @@ func (c *Collector) build(metrics map[string]float64, slot llamaserver.Slot, ser
 	if c.Log != nil {
 		split = c.Log.Latest()
 	}
-	// Devices by name for the local one and by endpoint for the RPC ones: llama.cpp numbers RPC devices
-	// by the nodes that registered, so a node that was skipped shifts the numbering.
+	// RPC devices by endpoint: llama.cpp numbers them by the nodes that registered, so a node that was
+	// skipped shifts the numbering.
 	byDev := map[string]loadlog.Device{}
 	byEndpoint := map[string]loadlog.Device{}
 	for _, d := range split.Devices {
@@ -134,7 +121,6 @@ func (c *Collector) build(metrics map[string]float64, slot llamaserver.Slot, ser
 	}
 	s := Snapshot{T: float64(now.UnixNano()) / 1e9, Source: c.Local, Nodes: []Node{}, Links: []Link{}} // lists never null: the page iterates both
 	s.Model = Model{Path: c.props.ModelPath, Name: strings.TrimSuffix(filepath.Base(c.props.ModelPath), ".gguf"), NCtx: c.props.NCtx, Build: c.props.Build, Structure: split.Info}
-	// layer ranges in device order: MTL0 first, then the RPC devices as listed
 	ordered := []loadlog.Device{}
 	if d, ok := byDev["MTL0"]; ok {
 		ordered = append(ordered, d)
@@ -188,6 +174,11 @@ func (c *Collector) build(metrics map[string]float64, slot llamaserver.Slot, ser
 			if p > 0 || *local.PromptTokensPerS == 0 {
 				local.PromptTokensPerS = &p
 			}
+		} else if c.lastSlot.Processing {
+			// The request just finished: its tokens were counted live as it ran, and the counters now jump
+			// by the whole request at once, which would read as a burst.
+			zero := 0.0
+			local.TokensPerS, local.PromptTokensPerS = &zero, &zero
 		}
 		c.lastSlot = slot
 		rp := int(metrics["llamacpp:requests_processing"])
@@ -195,7 +186,6 @@ func (c *Collector) build(metrics map[string]float64, slot llamaserver.Slot, ser
 		sl := slot
 		local.Slot = &sl
 		s.Totals.TokensPredicted = metrics["llamacpp:tokens_predicted_total"]
-		s.Totals.PromptTokens = metrics["llamacpp:prompt_tokens_total"]
 	} else if c.last != nil {
 		for _, n := range c.last.Nodes {
 			if n.ID == "local" {
@@ -209,7 +199,7 @@ func (c *Collector) build(metrics map[string]float64, slot llamaserver.Slot, ser
 	s.Totals.MemHeld = local.MemModel + local.MemContext + local.MemCompute
 
 	for i, addr := range c.Args.RPC {
-		dev := "RPC" + itoa(i)
+		dev := "RPC" + strconv.Itoa(i)
 		n := Node{ID: addr, Kind: "rpc", Device: dev, Label: dev}
 		if d, ok := byEndpoint[addr]; ok {
 			dev = d.Name
@@ -219,8 +209,8 @@ func (c *Collector) build(metrics map[string]float64, slot llamaserver.Slot, ser
 		} else {
 			n.Stale = true // listed on the command line, absent from the load: the server skipped it
 		}
-		if name, ok := c.Names[hostOf(addr)]; ok {
-			n.Label = name
+		if host, _, err := net.SplitHostPort(addr); err == nil && c.Names[host] != "" {
+			n.Label = c.Names[host]
 		} else if n.Label == dev {
 			n.Label = n.Device
 		}
@@ -257,12 +247,3 @@ func (c *Collector) build(metrics map[string]float64, slot llamaserver.Slot, ser
 	c.lastT = now
 	return s
 }
-
-func hostOf(addr string) string {
-	if i := strings.LastIndexByte(addr, ':'); i >= 0 {
-		return addr[:i]
-	}
-	return addr
-}
-
-func itoa(i int) string { return strconv.Itoa(i) }

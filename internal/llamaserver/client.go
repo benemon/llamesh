@@ -102,7 +102,6 @@ func ParseMetrics(text string) map[string]float64 {
 
 type Slot struct {
 	Processing bool `json:"processing"`
-	NCtx       int  `json:"-"`
 	NPrompt    int  `json:"n_prompt"`
 	NCached    int  `json:"n_cached"`
 	NProcessed int  `json:"n_processed"`
@@ -121,7 +120,6 @@ func (c *Client) Slot() (Slot, error) {
 func ParseSlots(b []byte) (Slot, error) {
 	var raw []struct {
 		Processing bool            `json:"is_processing"`
-		NCtx       int             `json:"n_ctx"`
 		NPrompt    int             `json:"n_prompt_tokens"`
 		NCached    int             `json:"n_prompt_tokens_cache"`
 		NProcessed int             `json:"n_prompt_tokens_processed"`
@@ -134,7 +132,7 @@ func ParseSlots(b []byte) (Slot, error) {
 		return Slot{}, fmt.Errorf("no slots")
 	}
 	s := raw[0]
-	slot := Slot{Processing: s.Processing, NCtx: s.NCtx, NPrompt: s.NPrompt, NCached: s.NCached, NProcessed: s.NProcessed}
+	slot := Slot{Processing: s.Processing, NPrompt: s.NPrompt, NCached: s.NCached, NProcessed: s.NProcessed}
 	type nt struct {
 		NDecoded int `json:"n_decoded"`
 	}

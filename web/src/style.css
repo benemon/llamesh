@@ -1,4 +1,7 @@
-:root { color-scheme: dark; --fg: #d7dbe3; --dim: #7d8594; --bg: #0a0c11; --panel: #12161ecc; --line: #263041; }
+:root { color-scheme: dark; --fg: #d7dbe3; --dim: #7d8594; --bg: #0a0c11; --panel: #12161ecc; --line: #263041; --warn: #ffb36b; }
+/* light: chosen with the toggle, or by the system when nothing is chosen */
+:root[data-theme="light"] { color-scheme: light; --fg: #1c2230; --dim: #5f6a7c; --bg: #f3f5f9; --panel: #ffffffcc; --line: #d5dbe6; --warn: #b8641a; }
+@media (prefers-color-scheme: light) { :root:not([data-theme]) { color-scheme: light; --fg: #1c2230; --dim: #5f6a7c; --bg: #f3f5f9; --panel: #ffffffcc; --line: #d5dbe6; --warn: #b8641a; } }
 html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); font: 13px/1.4 -apple-system, "SF Pro Text", Inter, system-ui, sans-serif; overflow: hidden; }
 #stage, #stage canvas { position: fixed; inset: 0; display: block; width: 100vw; height: 100vh; touch-action: none; user-select: none; -webkit-user-select: none; }
 body.stale #stage { filter: grayscale(0.8) brightness(0.6); }
@@ -7,7 +10,8 @@ body.stale #stage { filter: grayscale(0.8) brightness(0.6); }
 .label .name { color: var(--fg); font-size: 12px; margin-bottom: 2px; }
 .label .name em { color: var(--dim); font-style: normal; letter-spacing: .08em; text-transform: uppercase; font-size: 10px; margin-left: .5em; }
 .label div span { color: var(--dim); margin-right: .6em; }
-#panel { position: fixed; top: 16px; right: 16px; width: min(300px, calc(100vw - 32px)); max-height: calc(100% - 100px); overflow: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; backdrop-filter: blur(8px); }
+.label .name i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 7px; vertical-align: 1px; }
+#panel { position: fixed; top: 60px; right: 16px; width: min(300px, calc(100vw - 32px)); max-height: calc(100% - 100px); overflow: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; backdrop-filter: blur(8px); }
 #panel .close { position: absolute; top: 8px; right: 10px; width: 32px; height: 32px; border: 0; border-radius: 8px; background: transparent; color: var(--dim); font-size: 22px; line-height: 1; cursor: pointer; }
 #panel .close:active { background: var(--line); }
 #panel h2 { margin: 0 0 8px; padding-right: 32px; font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--dim); }
@@ -34,8 +38,11 @@ body.stale #stage { filter: grayscale(0.8) brightness(0.6); }
 #totals div { display: contents; }
 #totals div span { color: var(--dim); font-size: 11px; text-transform: uppercase; letter-spacing: .08em; align-self: baseline; }
 #totals div b { font-weight: 400; white-space: nowrap; }
-#status { position: fixed; top: 12px; left: 16px; color: #ffb36b; }
+#status { position: fixed; top: 12px; left: 16px; color: var(--warn); }
 #depth { position: fixed; top: 14px; left: 50%; transform: translateX(-50%); padding: 8px 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; backdrop-filter: blur(6px); color: var(--dim); white-space: nowrap; max-width: calc(100vw - 32px); overflow: hidden; text-overflow: ellipsis; }
 #depth:empty { display: none; }
 #depth b { color: var(--fg); font-weight: 500; }
-.label .name i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 7px; vertical-align: 1px; }
+
+#theme { position: fixed; top: 16px; right: 16px; display: flex; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 3px; backdrop-filter: blur(6px); }
+#theme button { border: 0; background: transparent; color: var(--dim); font: inherit; font-size: 12px; padding: 5px 10px; border-radius: 7px; cursor: pointer; }
+#theme button[aria-pressed="true"] { background: var(--line); color: var(--fg); }

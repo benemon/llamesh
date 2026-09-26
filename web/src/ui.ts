@@ -1,18 +1,18 @@
 import type { Scene } from "./scene";
-import type { View, ViewNode } from "./types";
+import { layerCount, type View, type ViewNode } from "./types";
 
 const fmtB = (b: number) => b >= 1073741824 ? `${(b / 1073741824).toFixed(1)} GiB` : b >= 1048576 ? `${(b / 1048576).toFixed(0)} MiB` : `${(b / 1024).toFixed(0)} KiB`;
-const fmtRate = (b: number) => b >= 1e6 ? `${(b / 1e6).toFixed(1)} MB/s` : `${(b / 1e3).toFixed(0)} KB/s`;
 
-// Every scalar of a node, flattened, as label -> display string. What the panel lists and pins draw from.
+// Every scalar of a node, flattened, as label -> display string. Labels are the pin keys, so no two
+// rows share one.
 function fields(n: ViewNode): [string, string][] {
   const f: [string, string][] = [
     ["host", n.source],
     ["device", n.device],
     ["address", n.address],
     ["memory total", fmtB(n.mem_total)],
-    ["model", fmtB(n.mem_model)],
-    ["context", fmtB(n.mem_context)],
+    ["weights", fmtB(n.mem_model)],
+    ["cache", fmtB(n.mem_context)],
     ["compute", fmtB(n.mem_compute)],
     ["held", `${((n.mem_model + n.mem_context + n.mem_compute) / n.mem_total * 100).toFixed(0)} %`],
   ];
@@ -37,24 +37,42 @@ export class UI {
   private depth = document.getElementById("depth")!;
   private selected: string | null = null;
   private last: View | null = null;
-  private cells = new Map<string, HTMLElement>(); // strip cells by key, updated in place so hover survives the poll
+  private cells = new Map<string, HTMLElement>(); // panel entries by key
   private pinnedFocus: string | null = null;
   private pins = new Map<string, Set<string>>();
 
   constructor(private scene: Scene) {
+    this.installTheme();
     scene.onPick = (id) => { if (!scene.dragged) this.select(id === this.selected ? null : id); }; // tapping the open blob closes it
     scene.canvas.addEventListener("pointerup", (e) => { if (e.target === scene.canvas && !scene.dragged && !scene.hitTest(e.clientX, e.clientY)) this.select(null); });
     this.panel.addEventListener("click", (e) => { if ((e.target as HTMLElement).closest(".close")) this.select(null); });
     let wasZoomed = false, lastDepth = "";
     scene.onFrame(() => {
       const z = scene.zoom > 1.8;
-      if (z !== wasZoomed && this.last) { wasZoomed = z; this.renderLabels(this.last); }
+      if (z !== wasZoomed && this.last) { wasZoomed = z; this.renderLabels(this.last, z); }
       this.placeLabels();
       const d = this.depthText();
       if (d !== lastDepth) { lastDepth = d; this.depth.innerHTML = d; }
     });
   }
 
+
+  // dark, light, or the system's choice; the page and the scene follow together
+  private installTheme() {
+    const buttons = document.querySelectorAll<HTMLButtonElement>("#theme button");
+    const system = matchMedia("(prefers-color-scheme: light)");
+    const apply = (choice: string) => {
+      if (choice === "system") delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = choice;
+      buttons.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.theme === choice)));
+      this.scene.theme(choice === "dark" || (choice === "system" && !system.matches));
+      try { localStorage.setItem("llamesh.theme", choice); } catch { /* no storage */ }
+    };
+    let saved = "system";
+    try { saved = localStorage.getItem("llamesh.theme") ?? "system"; } catch { /* no storage */ }
+    apply(saved);
+    buttons.forEach((b) => b.addEventListener("click", () => apply(b.dataset.theme!)));
+    system.addEventListener("change", () => { if (!document.documentElement.dataset.theme) apply("system"); });
+  }
 
   private pinned(id: string): Set<string> {
     if (!this.pins.has(id)) {
@@ -84,7 +102,7 @@ export class UI {
     this.last = s;
     this.renderPanel();
     this.renderStrip(s);
-    this.renderLabels(s);
+    this.renderLabels(s, this.scene.zoom > 1.8);
   }
 
   private renderPanel() {
@@ -96,18 +114,17 @@ export class UI {
       fields(n).map(([k, v]) => `<label><input type="checkbox" data-k="${k}" ${pins.has(k) ? "checked" : ""}/> <b>${k}</b><span>${v}</span></label>`).join("") +
       `<p class="hint">tick a field to pin it to the blob</p>`;
     this.panel.querySelectorAll<HTMLInputElement>("input").forEach((cb) => cb.onchange = () => {
-      cb.checked ? pins.add(cb.dataset.k!) : pins.delete(cb.dataset.k!);
+      if (cb.checked) pins.add(cb.dataset.k!); else pins.delete(cb.dataset.k!);
       this.save(n.id);
-      if (this.last) this.renderLabels(this.last);
+      if (this.last) this.renderLabels(this.last, this.scene.zoom > 1.8);
     });
   }
 
-  private renderLabels(s: View) {
+  // Zoomed in, the layer range and context fill show without being pinned: that is what the rings are.
+  private renderLabels(s: View, zoomed: boolean) {
     this.labels.innerHTML = "";
     for (const n of s.nodes) {
       const pins = this.pinned(n.id);
-      // zoomed in, the layer range and context fill show without being pinned: that is what the rings are
-      const zoomed = this.scene.zoom > 1.8;
       const rows = fields(n).filter(([k]) => pins.has(k) || (zoomed && (k === "layers" || k === "context")));
       const el = document.createElement("div");
       el.className = "label";
@@ -119,33 +136,36 @@ export class UI {
     this.placeLabels();
   }
 
+  // Labels hang below their blobs; two blobs of one host sit close, so a label that would overlap one
+  // already placed is pushed down beneath it.
   private placeLabels() {
+    const placed: { x: number; y: number; w: number; h: number }[] = [];
     this.labels.querySelectorAll<HTMLElement>(".label").forEach((el) => {
       const p = this.scene.screenPos(el.dataset.id!);
       if (!p) return;
-      const strip = window.innerHeight - 12;
-      el.style.left = `${Math.min(Math.max(p.x, el.offsetWidth / 2 + 8), window.innerWidth - el.offsetWidth / 2 - 8)}px`;
-      el.style.top = `${Math.min(p.y + p.r * 1.25, strip - el.offsetHeight - 12)}px`;
+      const floor = window.innerHeight - 12;
+      const w = el.offsetWidth, h = el.offsetHeight;
+      const x = Math.min(Math.max(p.x, w / 2 + 8), window.innerWidth - w / 2 - 8);
+      let y = Math.min(p.y + p.r * 1.25, floor - h - 12);
+      for (const o of placed) if (Math.abs(o.x - x) < (o.w + w) / 2 && y < o.y + o.h + 6 && y + h + 6 > o.y) y = o.y + o.h + 6;
+      placed.push({ x, y, w, h });
+      el.style.left = `${x}px`;
+      el.style.top = `${y}px`;
     });
   }
 
-  // What the camera is inside: the layer being passed with its share of the node's weights and context,
-  // or the core. Per-layer figures are the node's totals divided by its layer count; llama.cpp reports
-  // nothing finer.
+  // Per-layer figures are the node's totals divided by its layer count; llama.cpp reports nothing finer.
   private depthText(): string {
     const d = this.scene.depth();
     if (!d || !this.last) return "";
     const n = this.last.nodes.find((x) => x.id === d.id);
     if (!n) return "";
-    const count = n.layers ? n.layers[1] - n.layers[0] + 1 : 1;
-    const fill = n.ctx_fill;
-    if (d.core) return `<b>${n.label}</b> · context core · ${fmtB(n.mem_context * fill)} of ${fmtB(n.mem_context)} in use (${Math.round(fill * 100)} % of the window)`;
-    return `<b>${n.label}</b> · layer ${d.layer! + 1} of ${n.n_layer ?? "?"} · ${fmtB(n.mem_model / count)} weights · ${fmtB(n.mem_context / count * fill)} context in use`;
+    const count = layerCount(n.layers);
+    if (d.core) return `<b>${n.label}</b> · context core · ${fmtB(n.mem_context * n.ctx_fill)} of ${fmtB(n.mem_context)} in use (${Math.round(n.ctx_fill * 100)} % of the window)`;
+    return `<b>${n.label}</b> · layer ${d.layer! + 1} of ${n.n_layer ?? "?"} · ${fmtB(n.mem_model / count)} weights · ${fmtB(n.mem_context / count * n.ctx_fill)} context in use`;
   }
 
-  // The strip persists and is updated in place so the hover survives the poll. Left, one row per server:
-  // its picture, so rolling over it focuses that picture, clicking pins the focus, clicking again
-  // releases it. Right, the totals.
+  // Entries persist and are updated in place so the hover survives the poll.
   private row(src: View["sources"][number], s: View) {
     let el = this.cells.get(`src:${src.id}`);
     if (!el) {
@@ -175,7 +195,8 @@ export class UI {
     set(".host", `${src.host}:${src.id.slice(src.id.lastIndexOf("/") + 1)}${nodes.length > 1 ? ` +${nodes.length - 1} rpc` : ""}`);
     set(".shape", `${(src.model.n_ctx / 1024).toFixed(0)}k ctx${st?.n_layer ? ` · ${st.n_layer} layers` : ""}${st?.n_expert ? ` · ${st.n_expert_used}/${st.n_expert} experts` : ""}`);
     set(".rate", tps > 0 ? `${tps.toFixed(1)} tok/s` : "");
-    set(".req", (src.stale ? "stale" : req) ? ` · ${src.stale ? "stale" : req}` : "");
+    const state = src.stale ? "stale" : req;
+    set(".req", state ? ` · ${state}` : "");
     return el;
   }
 
@@ -201,11 +222,10 @@ export class UI {
       for (const src of s.sources) { want.add(`src:${src.id}`); this.row(src, s); }
       const tps = s.nodes.reduce((a, n) => a + (n.tokens_per_s ?? 0), 0);
       const flow = s.links.reduce((a, l) => a + l.bytes_out_per_s + l.bytes_in_per_s, 0);
-      const held = s.nodes.reduce((a, n) => a + n.mem_model + n.mem_context + n.mem_compute, 0);
       const keep = (key: string, label: string, value: string) => { want.add(key); this.cell(key, label, value); };
-      keep("held", "held", `${fmtB(held)} across ${s.nodes.length} node${s.nodes.length === 1 ? "" : "s"}`);
+      keep("held", "held", `${fmtB(s.totals.mem_held)} across ${s.nodes.length} node${s.nodes.length === 1 ? "" : "s"}`);
       keep("tps", "tokens/s", tps.toFixed(1));
-      keep("link", "link", fmtRate(flow));
+      keep("link", "link", flow >= 1e6 ? `${(flow / 1e6).toFixed(1)} MB/s` : `${(flow / 1e3).toFixed(0)} KB/s`);
       keep("generated", "generated", s.totals.tokens_predicted.toLocaleString());
     }
     for (const [key, el] of [...this.cells]) if (!want.has(key)) { el.remove(); this.cells.delete(key); if (this.pinnedFocus && key === `src:${this.pinnedFocus}`) { this.pinnedFocus = null; this.scene.focus(null); } }

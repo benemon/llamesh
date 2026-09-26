@@ -2,7 +2,6 @@ package discover
 
 import (
 	"os"
-	"strings"
 	"testing"
 )
 
@@ -12,7 +11,7 @@ func TestParseArgsRPC(t *testing.T) {
 	if len(a.RPC) != 1 || a.RPC[0] != "10.0.0.2:50052" {
 		t.Fatalf("rpc: %v", a.RPC)
 	}
-	if !strings.HasSuffix(a.Model, "gpt-oss-20b-F16.gguf") || a.Port != 8896 || a.APIKey != "REDACTED" {
+	if a.Host != "127.0.0.1" || a.APIKey != "REDACTED" {
 		t.Fatalf("got %+v", a)
 	}
 }
@@ -20,7 +19,7 @@ func TestParseArgsRPC(t *testing.T) {
 func TestParseArgsNoRPC(t *testing.T) {
 	b, _ := os.ReadFile("../../testdata/ps-command.txt")
 	a := ParseArgs(string(b))
-	if len(a.RPC) != 0 || a.Port != 8894 {
+	if len(a.RPC) != 0 || a.Host != "127.0.0.1" {
 		t.Fatalf("got %+v", a)
 	}
 }

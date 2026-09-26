@@ -45,7 +45,7 @@ func TestParseSlots(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s.NCtx != 131072 || s.Processing {
+	if s.NPrompt != 297 || s.Processing {
 		t.Fatalf("got %+v", s)
 	}
 }
