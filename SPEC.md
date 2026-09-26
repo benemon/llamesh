@@ -154,7 +154,8 @@ previous value and sets `"stale": true` on the affected node or link; a node tha
   what fits. An entry is one server's picture: rolling over it fades everything from other sources, and
   hosts holding nothing of it; clicking pins the focus, clicking again releases it. The build string is
   in the server node's detail panel.
-- Totals, bottom right: held across nodes, tokens/s, link throughput, tokens generated.
+- Totals, a second section of the same panel under a separator: held across nodes, tokens/s, link
+  throughput, tokens generated.
 - Reconnects the SSE stream on drop; shows the last snapshot greyed while disconnected.
 
 ## Not in the first cut

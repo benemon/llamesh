@@ -17,13 +17,8 @@ body.stale #stage { filter: grayscale(0.8) brightness(0.6); }
 #panel label b { font-weight: 500; color: var(--dim); }
 #panel label span { font-variant-numeric: tabular-nums; }
 #panel .hint { color: var(--dim); font-size: 11px; margin: 8px 0 0; }
-#strip { position: fixed; left: 0; right: 0; bottom: 0; display: flex; justify-content: flex-end; padding: 12px 20px; background: linear-gradient(transparent, #0a0c11 40%); font-variant-numeric: tabular-nums; pointer-events: none; }
-#totals { display: flex; flex-wrap: wrap; gap: 10px 28px; }
-#totals div { white-space: nowrap; }
-#totals div span { display: block; color: var(--dim); font-size: 11px; text-transform: uppercase; letter-spacing: .08em; }
 /* the servers, one entry each, in the detail panel's idiom; scrolls past what fits */
 #models { position: fixed; top: 40px; left: 16px; width: min(300px, calc(100vw - 32px)); max-height: calc(100% - 140px); overflow: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; backdrop-filter: blur(6px); font-variant-numeric: tabular-nums; }
-#models:has(.rows:empty) { display: none; }
 #models h2 { margin: 0 0 4px; font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--dim); }
 #models .rows > div { display: grid; grid-template-columns: 14px 1fr auto; gap: 2px 8px; align-items: baseline; padding: 8px 6px; margin: 0 -6px; border-top: 1px solid var(--line); border-radius: 8px; cursor: pointer; }
 #models .rows > div:first-child { border-top: 0; }
@@ -33,6 +28,12 @@ body.stale #stage { filter: grayscale(0.8) brightness(0.6); }
 #models .rate { color: var(--fg); white-space: nowrap; }
 #models .meta { grid-column: 2 / 4; color: var(--dim); font-size: 11px; line-height: 1.5; }
 #models .meta b { font-weight: 400; color: var(--fg); }
+/* the totals, a second section under a separator */
+#totals { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
+#totals:empty { display: none; }
+#totals div { display: contents; }
+#totals div span { color: var(--dim); font-size: 11px; text-transform: uppercase; letter-spacing: .08em; align-self: baseline; }
+#totals div b { font-weight: 400; white-space: nowrap; }
 #status { position: fixed; top: 12px; left: 16px; color: #ffb36b; }
 #depth { position: fixed; top: 14px; left: 50%; transform: translateX(-50%); padding: 8px 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; backdrop-filter: blur(6px); color: var(--dim); white-space: nowrap; max-width: calc(100vw - 32px); overflow: hidden; text-overflow: ellipsis; }
 #depth:empty { display: none; }

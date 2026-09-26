@@ -31,7 +31,6 @@ function fields(n: ViewNode): [string, string][] {
 export class UI {
   private panel = document.getElementById("panel")!;
   private labels = document.getElementById("labels")!;
-  private strip = document.getElementById("strip")!;
   private models = document.querySelector("#models .rows")!;
   private totals = document.getElementById("totals")!;
   private status = document.getElementById("status")!;
@@ -124,7 +123,7 @@ export class UI {
     this.labels.querySelectorAll<HTMLElement>(".label").forEach((el) => {
       const p = this.scene.screenPos(el.dataset.id!);
       if (!p) return;
-      const strip = this.strip.getBoundingClientRect().top;
+      const strip = window.innerHeight - 12;
       el.style.left = `${Math.min(Math.max(p.x, el.offsetWidth / 2 + 8), window.innerWidth - el.offsetWidth / 2 - 8)}px`;
       el.style.top = `${Math.min(p.y + p.r * 1.25, strip - el.offsetHeight - 12)}px`;
     });
