@@ -149,10 +149,12 @@ previous value and sets `"stale": true` on the affected node or link; a node tha
   angle and elevation staggered, so more hosts fill space rather than a line.
 - Click a blob: a panel with every field of that node from the latest snapshot. Each field has a
   tick; ticked fields render as a label attached to the blob and persist in `localStorage` per node id.
-- Bottom strip: one model cell per server (name, context, build, structure); total held across nodes;
-  total tokens/s; link throughput; the primary's request progress (`n_processed / n_prompt`, cached
-  share). A model cell is one server's picture: rolling over it fades everything from other sources,
-  and hosts holding nothing of it; clicking pins the focus, clicking again releases it.
+- Models panel, top left, in the detail panel's idiom: one entry per server with its colour, model
+  name, host and port, RPC node count, context, layers, experts, tokens/s and request state; scrolls past
+  what fits. An entry is one server's picture: rolling over it fades everything from other sources, and
+  hosts holding nothing of it; clicking pins the focus, clicking again releases it. The build string is
+  in the server node's detail panel.
+- Totals, bottom right: held across nodes, tokens/s, link throughput, tokens generated.
 - Reconnects the SSE stream on drop; shows the last snapshot greyed while disconnected.
 
 ## Not in the first cut

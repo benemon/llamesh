@@ -70,6 +70,8 @@ export interface ViewNode extends Node {
   primary: boolean; // the llama-server of the source serving this page: the centre of the picture
   n_ctx: number;
   n_layer?: number;
+  model_name: string;
+  build: string;
   ctx_fill: number; // this node's source: prompt plus generated tokens over the context window
   server_slot?: Slot;
 }

@@ -20,6 +20,7 @@ function fields(n: ViewNode): [string, string][] {
   if (n.layers && n.n_layer) f.push(["layers", `${n.layers[0] + 1}–${n.layers[1] + 1} of ${n.n_layer}`]);
   if (n.server_slot && n.n_ctx) f.push(["context", `${Math.round(n.ctx_fill * 100)} % of ${(n.n_ctx / 1024).toFixed(0)}k held`]);
   if (n.kind === "llama-server") {
+    f.push(["model", n.model_name], ["build", n.build]);
     f.push(["tokens/s", (n.tokens_per_s ?? 0).toFixed(1)], ["prompt tokens/s", (n.prompt_tokens_per_s ?? 0).toFixed(0)], ["requests", String(n.requests_processing ?? 0)]);
     if (n.slot) f.push(["slot", n.slot.processing ? "processing" : "idle"], ["prompt", `${n.slot.n_processed} / ${n.slot.n_prompt} (${n.slot.n_cached} cached)`]);
   }
@@ -31,6 +32,8 @@ export class UI {
   private panel = document.getElementById("panel")!;
   private labels = document.getElementById("labels")!;
   private strip = document.getElementById("strip")!;
+  private models = document.querySelector("#models .rows")!;
+  private totals = document.getElementById("totals")!;
   private status = document.getElementById("status")!;
   private depth = document.getElementById("depth")!;
   private selected: string | null = null;
@@ -141,25 +144,49 @@ export class UI {
     return `<b>${n.label}</b> · layer ${d.layer! + 1} of ${n.n_layer ?? "?"} · ${fmtB(n.mem_model / count)} weights · ${fmtB(n.mem_context / count * fill)} context in use`;
   }
 
-  // The strip's cells persist and are updated in place. A model cell is one server's picture: rolling
-  // over it focuses that picture, clicking pins the focus, clicking again releases it.
-  private cell(key: string, label: string, value: string, focusKey?: string) {
+  // The strip persists and is updated in place so the hover survives the poll. Left, one row per server:
+  // its picture, so rolling over it focuses that picture, clicking pins the focus, clicking again
+  // releases it. Right, the totals.
+  private row(src: View["sources"][number], s: View) {
+    let el = this.cells.get(`src:${src.id}`);
+    if (!el) {
+      el = document.createElement("div");
+      el.innerHTML = '<span><i></i></span><span class="name"></span><span class="rate"></span><span class="meta"><span class="host"></span> · <span class="shape"></span><b class="req"></b></span>';
+      const key = src.id;
+      el.addEventListener("pointerenter", () => { if (!this.pinnedFocus) this.scene.focus(key); });
+      el.addEventListener("pointerleave", () => { if (!this.pinnedFocus) this.scene.focus(null); });
+      el.addEventListener("click", () => {
+        this.pinnedFocus = this.pinnedFocus === key ? null : key;
+        this.scene.focus(this.pinnedFocus ?? key);
+        for (const [k, c] of this.cells) c.classList.toggle("pinned", k === `src:${this.pinnedFocus}`);
+      });
+      this.cells.set(`src:${src.id}`, el);
+      this.models.appendChild(el);
+    }
+    const nodes = s.nodes.filter((n) => n.sourceKey === src.id);
+    const server = nodes.find((n) => n.kind === "llama-server");
+    const colour = "#" + (this.scene.blobs.get(server?.id ?? "")?.colour ?? 0x7fb7ff).toString(16).padStart(6, "0");
+    const tps = nodes.reduce((a, n) => a + (n.tokens_per_s ?? 0), 0);
+    const slot = server?.slot;
+    const req = !slot ? "" : slot.processing ? (slot.n_processed < slot.n_prompt ? `prompt ${Math.round(slot.n_processed / slot.n_prompt * 100)} %` : "generating") : "idle";
+    const st = src.model.structure;
+    const set = (sel: string, text: string) => { const c = el!.querySelector(sel)!; if (c.textContent !== text) c.textContent = text; };
+    (el.querySelector("i") as HTMLElement).style.background = colour;
+    set(".name", src.model.name || "…");
+    set(".host", `${src.host}:${src.id.slice(src.id.lastIndexOf("/") + 1)}${nodes.length > 1 ? ` +${nodes.length - 1} rpc` : ""}`);
+    set(".shape", `${(src.model.n_ctx / 1024).toFixed(0)}k ctx${st?.n_layer ? ` · ${st.n_layer} layers` : ""}${st?.n_expert ? ` · ${st.n_expert_used}/${st.n_expert} experts` : ""}`);
+    set(".rate", tps > 0 ? `${tps.toFixed(1)} tok/s` : "");
+    set(".req", (src.stale ? "stale" : req) ? ` · ${src.stale ? "stale" : req}` : "");
+    return el;
+  }
+
+  private cell(key: string, label: string, value: string) {
     let el = this.cells.get(key);
     if (!el) {
       el = document.createElement("div");
       el.innerHTML = "<span></span><b></b>";
-      if (focusKey) {
-        el.classList.add("model");
-        el.addEventListener("pointerenter", () => { if (!this.pinnedFocus) this.scene.focus(focusKey); });
-        el.addEventListener("pointerleave", () => { if (!this.pinnedFocus) this.scene.focus(null); });
-        el.addEventListener("click", () => {
-          this.pinnedFocus = this.pinnedFocus === focusKey ? null : focusKey;
-          this.scene.focus(this.pinnedFocus ?? focusKey);
-          for (const c of this.cells.values()) c.classList.toggle("pinned", c === el && this.pinnedFocus !== null);
-        });
-      }
       this.cells.set(key, el);
-      this.strip.appendChild(el);
+      this.totals.appendChild(el);
     }
     const [k, v] = [el.firstElementChild!, el.lastElementChild!];
     if (k.textContent !== label) k.textContent = label;
@@ -169,23 +196,17 @@ export class UI {
 
   private renderStrip(s: View) {
     const want = new Set<string>();
-    const keep = (key: string, label: string, value: string, focusKey?: string) => { want.add(key); return this.cell(key, label, value, focusKey); };
     if (s.nodes.length === 0) {
-      keep("empty", "model", "no llama-server running");
+      want.add("empty"); this.cell("empty", "model", "no llama-server running");
     } else {
+      for (const src of s.sources) { want.add(`src:${src.id}`); this.row(src, s); }
       const tps = s.nodes.reduce((a, n) => a + (n.tokens_per_s ?? 0), 0);
       const flow = s.links.reduce((a, l) => a + l.bytes_out_per_s + l.bytes_in_per_s, 0);
       const held = s.nodes.reduce((a, n) => a + n.mem_model + n.mem_context + n.mem_compute, 0);
-      s.sources.forEach((src, i) => keep(`src:${src.id}`, i === 0 ? "model" : `model · ${src.host}:${src.id.slice(src.id.lastIndexOf("/") + 1)}`,
-        `${src.model.name} · ${(src.model.n_ctx / 1024).toFixed(0)}k ctx · ${src.model.build}` + (src.model.structure?.n_layer ? ` · ${src.model.structure.n_layer} layers${src.model.structure.n_expert ? ` · ${src.model.structure.n_expert_used}/${src.model.structure.n_expert} experts` : ""}` : ""), src.id));
+      const keep = (key: string, label: string, value: string) => { want.add(key); this.cell(key, label, value); };
       keep("held", "held", `${fmtB(held)} across ${s.nodes.length} node${s.nodes.length === 1 ? "" : "s"}`);
       keep("tps", "tokens/s", tps.toFixed(1));
       keep("link", "link", fmtRate(flow));
-      const slot = s.nodes.find((n) => n.primary)?.slot;
-      if (slot) {
-        const prog = slot.n_prompt > 0 ? `${Math.min(100, Math.round(slot.n_processed / slot.n_prompt * 100))} %` : "";
-        keep("request", "request", slot.processing ? `prompt ${prog}${slot.n_cached ? `, ${Math.round(slot.n_cached / slot.n_prompt * 100)} % cached` : ""}` : "idle");
-      }
       keep("generated", "generated", s.totals.tokens_predicted.toLocaleString());
     }
     for (const [key, el] of [...this.cells]) if (!want.has(key)) { el.remove(); this.cells.delete(key); if (this.pinnedFocus && key === `src:${this.pinnedFocus}`) { this.pinnedFocus = null; this.scene.focus(null); } }
