@@ -41,6 +41,10 @@ argument_specs:
         type: str
         default: 1s
         description: How often a collector reads its llama-servers.
+      llamesh_token_tls:
+        type: bool
+        default: true
+        description: TLS on the ingest port authenticated by the token, with no certificates; v0.2.0 or later.
       llamesh_tls_cert:
         type: str
         default: ""

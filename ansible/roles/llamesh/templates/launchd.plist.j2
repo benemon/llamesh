@@ -16,19 +16,23 @@
         <string>{{ llamesh_listen }}</string>
         <string>-ingest</string>
         <string>{{ llamesh_ingest }}</string>
-{% if _llamesh_tls %}
+{% if _llamesh_transport == 'cert' %}
         <string>-tls-cert</string>
         <string>{{ _llamesh_token_path | dirname }}/tls.crt</string>
         <string>-tls-key</string>
         <string>{{ _llamesh_token_path | dirname }}/tls.key</string>
+{% elif _llamesh_transport == 'token' %}
+        <string>-token-tls</string>
 {% endif %}
 {% else %}
         <string>-collector</string>
         <string>{{ llamesh_collector }}</string>
         <string>-poll</string>
         <string>{{ llamesh_poll }}</string>
-{% if _llamesh_tls %}
+{% if _llamesh_transport == 'cert' %}
         <string>-tls</string>
+{% elif _llamesh_transport == 'token' %}
+        <string>-token-tls</string>
 {% endif %}
 {% endif %}
     </array>

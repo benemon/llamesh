@@ -20,14 +20,16 @@
 
 # Play variables and role parameters are not in hostvars, so the server's host publishes its choice as a
 # fact for its collectors to read.
-- name: Serve TLS when the server has both a certificate and a key
+- name: Choose how the server accepts collectors
   ansible.builtin.set_fact:
-    _llamesh_server_tls: "{{ llamesh_tls_cert | length > 0 and llamesh_tls_key | length > 0 }}"
+    _llamesh_server_transport: >-
+      {{ 'cert' if llamesh_tls_cert | length > 0 and llamesh_tls_key | length > 0
+      else 'token' if llamesh_token_tls else 'plain' }}
   when: llamesh_server
 
-- name: Follow the server's choice of TLS
+- name: Follow the server's choice
   ansible.builtin.set_fact:
-    _llamesh_tls: "{{ hostvars[_llamesh_server_name]._llamesh_server_tls }}"
+    _llamesh_transport: "{{ hostvars[_llamesh_server_name]._llamesh_server_transport }}"
 
 - name: Install the release
   ansible.builtin.import_tasks: install.yml
@@ -44,17 +46,17 @@
     - { name: tls.crt, content: "{{ llamesh_tls_cert }}" }
     - { name: tls.key, content: "{{ llamesh_tls_key }}" }
   become: "{{ _llamesh_os == 'linux' }}"
-  when: llamesh_server and _llamesh_tls
+  when: llamesh_server and _llamesh_transport == 'cert'
   register: _llamesh_tls_files
   no_log: true
 
-- name: Remove the server's certificate and key without TLS
+- name: Remove the server's certificate and key when they are not in use
   ansible.builtin.file:
     path: "{{ _llamesh_token_path | dirname }}/{{ item }}"
     state: absent
   loop: [tls.crt, tls.key]
   become: "{{ _llamesh_os == 'linux' }}"
-  when: llamesh_server and not _llamesh_tls
+  when: llamesh_server and _llamesh_transport != 'cert'
 
 - name: Run the services
   ansible.builtin.include_tasks: "service_{{ _llamesh_os }}.yml"
