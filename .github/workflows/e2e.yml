@@ -1,0 +1,49 @@
+name: E2E
+
+on:
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      LLAMA_BUILD: b10566
+      MODEL_REPO: bartowski/SmolLM2-135M-Instruct-GGUF
+      MODEL_REV: 09816acd5d99df7be770d85ea30822623dab342c
+      MODEL_FILE: SmolLM2-135M-Instruct-Q8_0.gguf
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/e2e
+          key: e2e-${{ env.LLAMA_BUILD }}-${{ env.MODEL_REV }}
+      - name: Fetch llama.cpp and a small model
+        run: |
+          mkdir -p ~/e2e && cd ~/e2e
+          [ -d llama-$LLAMA_BUILD ] || curl -fsSL https://github.com/ggml-org/llama.cpp/releases/download/$LLAMA_BUILD/llama-$LLAMA_BUILD-bin-ubuntu-x64.tar.gz | tar -xz
+          [ -f $MODEL_FILE ] || curl -fsSLo $MODEL_FILE https://huggingface.co/$MODEL_REPO/resolve/$MODEL_REV/$MODEL_FILE
+      - name: Run the Linux end to end (a CPU llama-server under systemd, split to an RPC node)
+        run: make test-e2e LLAMA=$HOME/e2e/llama-$LLAMA_BUILD MODEL=$HOME/e2e/$MODEL_FILE OUT=/tmp/llamesh-e2e
+      # The recordings the parsers' Linux fixtures come from, kept on success too.
+      - name: Upload what the run saw
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: linux-e2e
+          path: /tmp/llamesh-e2e/*.*
+          retention-days: 14
+      - name: Diagnostics on failure
+        if: failure()
+        run: |
+          systemctl status llamesh-e2e --no-pager || true
+          sudo journalctl -u llamesh-e2e --no-pager | tail -60 || true
+          tail -30 /tmp/llamesh-e2e/*.log || true
