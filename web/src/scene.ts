@@ -9,8 +9,8 @@ const radiusOf = (bytes: number) => Math.max(24, 170 * Math.cbrt(Math.max(bytes,
 // The primary is blue; every other node, RPC or another host's server, takes the next distinct hue.
 const PRIMARY = 0x7fb7ff;
 const NODE_COLOURS = [0xffb36b, 0x8ce99a, 0xf78fb3, 0xc3a6ff, 0xffe27a, 0x7fe3e0];
-// Additive light on a dark ground, or ink on paper: the same hues at a fixed lightness. Scaling the colour
-// instead greys the pastel hues out.
+// Additive light on a dark ground, or ink on paper: the same hues, saturated, at a fixed lightness.
+// Scaling the colour instead greys the pastel hues out.
 let dark = true;
 const ink = (hex: number, l: number) => {
   const hsl = { h: 0, s: 0, l: 0 };
@@ -21,11 +21,12 @@ const shade = (hex: number) => dark ? hex : ink(hex, 0.36);
 const coreColour = (hex: number) => dark ? hex : ink(hex, 0.3);
 const WHITE = new THREE.Color(0xffffff);
 const ENVELOPE = () => dark ? 0x9fbbe0 : 0xcfc6b4;
-const GROUND = () => dark ? 0x0a0c11 : 0xfbf8f1;
+const PAPER = new THREE.Color(0xfbf8f1);
+const GROUND = () => dark ? 0x0a0c11 : PAPER.getHex();
 
-// Everything is additive on a dark ground. On paper, grains are solid dots that cover what is behind them,
-// so an overlap never reads darker than one grain; meshes multiply, darkening what is under them by their
-// colour, and premultiplied output makes a transparent fragment the identity.
+// On paper, grains are solid dots that cover what is behind them, so an overlap never reads darker than one
+// grain; meshes multiply, darkening what is under them by their colour, and premultiplied output makes a
+// transparent fragment the identity.
 function style(m: THREE.Material, onPaper: "flat" | "normal" | "multiply") {
   const flat = !dark && onPaper === "flat";
   m.alphaTest = flat ? 0.35 : 0;
@@ -76,7 +77,6 @@ class Blob {
   private coreBase: { r: number; theta: number; phi: number }[] = [];
   private capacity: THREE.Mesh;   // faint shell at the size the context would be when full
   private coreGlow: THREE.Sprite;
-  private coreLit = new THREE.Color();
   private halo: THREE.Sprite;
   private pick: THREE.Mesh;
   private base: { theta: number; phi: number; w: number; jitter: number; layer: number }[] = [];
@@ -109,7 +109,7 @@ class Blob {
     this.pick.userData.id = node.id;
     this.group.add(this.halo, this.grains, this.capacity, this.coreGlow, this.core, this.pick);
     this.resize(node);
-    this.retheme(); // a blob made after the theme was chosen takes it here
+    this.retheme();
   }
 
   // A node's role can change after its blob exists, so the tint follows the snapshot.
@@ -172,7 +172,10 @@ class Blob {
       arr[i * 3 + 2] = r * sp * Math.sin(th);
     }
     pos.needsUpdate = true;
-    (this.grains.material as THREE.PointsMaterial).opacity = (dark ? 0.32 + 0.3 * a : 1) * dim;
+    // Solid ink is discarded below the alpha test, so on paper a dimmed grain pales towards the paper instead.
+    const gm = this.grains.material as THREE.PointsMaterial;
+    if (dark) gm.opacity = (0.32 + 0.3 * a) * dim;
+    else { gm.opacity = 1; gm.color.setHex(shade(this.colour)).lerp(PAPER, 1 - dim); }
     // the core's volume is the context in use; it can only grow to the capacity shell
     const rc = this.coreCap * Math.cbrt(Math.max(0.01, this.ctxFill));
     this.coreR = rc;
@@ -190,8 +193,7 @@ class Blob {
     cpos.needsUpdate = true;
     const f = Math.min(1, Math.max(0, this.ctxFill));
     if (dark) {
-      this.coreLit.setHex(this.colour).multiplyScalar(0.3 + 0.7 * f).lerp(WHITE, 0.35 * f * f);
-      (this.core.material as THREE.PointsMaterial).color.copy(this.coreLit);
+      (this.core.material as THREE.PointsMaterial).color.setHex(this.colour).multiplyScalar(0.3 + 0.7 * f).lerp(WHITE, 0.35 * f * f);
     }
     // Point sprites grow with proximity; up close they would merge into a wall. Shrink them as the camera
     // approaches and fade the glows away once it is inside, so what is left is grains around the viewer.
@@ -199,7 +201,9 @@ class Blob {
     const nearCore = Math.min(1, Math.max(0.1, this.camDist / (rc * 4)));
     (this.grains.material as THREE.PointsMaterial).size = 3.2 * near * (dark ? 1 : 1.3);
     (this.core.material as THREE.PointsMaterial).size = 2.6 * nearCore;
-    (this.core.material as THREE.PointsMaterial).opacity = (0.6 + 0.3 * a + 0.03 * Math.sin(time * 1.5)) * (0.4 + 0.6 * nearCore) * dim * dim * (dark ? 0.06 + 0.3 * f : 0.8); // packed: fades harder than the shells; dense additive grains saturate to white, so the fill sets how far they build
+    // Packed, the core fades harder than the shells. Additive grains this dense saturate to white; the fill
+    // sets how far they build.
+    (this.core.material as THREE.PointsMaterial).opacity = (0.6 + 0.3 * a + 0.03 * Math.sin(time * 1.5)) * (0.4 + 0.6 * nearCore) * dim * dim * (dark ? 0.06 + 0.3 * f : 0.8);
     this.coreGlow.scale.set(rc * 3, rc * 3, 1);
     (this.coreGlow.material as THREE.SpriteMaterial).opacity = (0.1 + 0.15 * a) * Math.min(1, Math.max(0, (this.camDist - rc * 2) / (rc * 4))) * dim;
     (this.halo.material as THREE.SpriteMaterial).opacity = (0.22 + 0.25 * a) * Math.min(1, Math.max(0, (this.camDist - R * 0.6) / (R * 1.4))) * dim;
@@ -228,7 +232,8 @@ class Stream {
 
   tick(dt: number) {
     const mat = this.points.material as THREE.PointsMaterial;
-    mat.opacity = 0.9 * Math.min(this.from.dim, this.to.dim);
+    const dim = Math.min(this.from.dim, this.to.dim);
+    mat.opacity = dark ? 0.9 * dim : 0.9;
     mat.size = 0.025 * (this.from.radius + this.to.radius) * (dark ? 1 : 1.4); // grains sized with the bodies they join, so the arc reads at any layout scale
     // 1 MB/s ~ 60 grains/s over a 3 s flight: the ~1 MB/s a three-node link carries in generation reads as
     // a steady thread; a prefill burst saturates at the cap
@@ -243,6 +248,7 @@ class Stream {
     const col = this.points.geometry.getAttribute("color") as THREE.BufferAttribute;
     const parr = pos.array as Float32Array, carr = col.array as Float32Array;
     const cOut = new THREE.Color(shade(this.from.colour)), cIn = new THREE.Color(shade(this.to.colour));
+    if (!dark) { cOut.lerp(PAPER, 1 - dim); cIn.lerp(PAPER, 1 - dim); }
     let k = 0;
     for (let i = this.pool.length - 1; i >= 0; i--) {
       const p = this.pool[i];
