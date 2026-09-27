@@ -9,13 +9,38 @@ const radiusOf = (bytes: number) => Math.max(24, 170 * Math.cbrt(Math.max(bytes,
 // The primary is blue; every other node, RPC or another host's server, takes the next distinct hue.
 const PRIMARY = 0x7fb7ff;
 const NODE_COLOURS = [0xffb36b, 0x8ce99a, 0xf78fb3, 0xc3a6ff, 0xffe27a, 0x7fe3e0];
-// Additive light on a dark ground, or ink on a light one: the same hues, darkened, blended normally.
+// Additive light on a dark ground, or ink on paper: the same hues at a fixed lightness. Scaling the colour
+// instead greys the pastel hues out.
 let dark = true;
-const blending = () => dark ? THREE.AdditiveBlending : THREE.NormalBlending;
-const shade = (hex: number) => dark ? hex : new THREE.Color(hex).multiplyScalar(0.45).getHex();
-const CORE = () => dark ? 0xfff3dc : 0x3a4256;
-const ENVELOPE = () => dark ? 0x9fbbe0 : 0x2d3a55;
-const GROUND = () => dark ? 0x0a0c11 : 0xf3f5f9;
+const ink = (hex: number, l: number) => {
+  const hsl = { h: 0, s: 0, l: 0 };
+  new THREE.Color(hex).getHSL(hsl);
+  return new THREE.Color().setHSL(hsl.h, Math.max(hsl.s, 0.95), l).getHex();
+};
+const shade = (hex: number) => dark ? hex : ink(hex, 0.36);
+const coreColour = (hex: number) => dark ? hex : ink(hex, 0.3);
+const WHITE = new THREE.Color(0xffffff);
+const ENVELOPE = () => dark ? 0x9fbbe0 : 0xcfc6b4;
+const GROUND = () => dark ? 0x0a0c11 : 0xfbf8f1;
+
+// Everything is additive on a dark ground. On paper, grains are solid dots that cover what is behind them,
+// so an overlap never reads darker than one grain; meshes multiply, darkening what is under them by their
+// colour, and premultiplied output makes a transparent fragment the identity.
+function style(m: THREE.Material, onPaper: "flat" | "normal" | "multiply") {
+  const flat = !dark && onPaper === "flat";
+  m.alphaTest = flat ? 0.35 : 0;
+  m.depthWrite = flat;
+  m.premultipliedAlpha = false;
+  if (dark) m.blending = THREE.AdditiveBlending;
+  else if (onPaper === "multiply") {
+    m.blending = THREE.CustomBlending;
+    m.blendEquation = THREE.AddEquation;
+    m.blendSrc = THREE.DstColorFactor;
+    m.blendDst = THREE.OneMinusSrcAlphaFactor;
+    m.premultipliedAlpha = true;
+  } else m.blending = THREE.NormalBlending;
+  m.needsUpdate = true;
+}
 
 // A radial white falloff: the grain sprite (small, sharp) and the glow (large, soft).
 function radialTexture(size: number, stops: [number, number][]): THREE.Texture {
@@ -34,7 +59,7 @@ function radialTexture(size: number, stops: [number, number][]): THREE.Texture {
 function points(tex: THREE.Texture, color: number, size: number, capacity: number): THREE.Points {
   const geo = new THREE.BufferGeometry();
   geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(capacity * 3), 3));
-  const mat = new THREE.PointsMaterial({ map: tex, color, size, transparent: true, opacity: 0.5, blending: blending(), depthWrite: false, sizeAttenuation: true });
+  const mat = new THREE.PointsMaterial({ map: tex, color, size, transparent: true, opacity: 0.5, depthWrite: false, sizeAttenuation: true });
   const p = new THREE.Points(geo, mat);
   p.frustumCulled = false;
   return p;
@@ -51,6 +76,7 @@ class Blob {
   private coreBase: { r: number; theta: number; phi: number }[] = [];
   private capacity: THREE.Mesh;   // faint shell at the size the context would be when full
   private coreGlow: THREE.Sprite;
+  private coreLit = new THREE.Color();
   private halo: THREE.Sprite;
   private pick: THREE.Mesh;
   private base: { theta: number; phi: number; w: number; jitter: number; layer: number }[] = [];
@@ -62,6 +88,7 @@ class Blob {
   layers: Layers | null = null;
   activity = 0;
   ctxFill = 0;
+  coreR = 0;     // the context core's radius this frame
   camDist = 1e9; // camera distance to this node's centre, set by the scene each frame
   private shown = 0;
   private spin = 0;
@@ -72,16 +99,17 @@ class Blob {
     this.colour = tint;
     this.grains = points(tex, shade(tint), 3.2, 30000);
     // The same grains as the shells, packed densely enough to read as a body.
-    this.core = points(tex, CORE(), 2.6, 8000);
+    this.core = points(tex, coreColour(tint), 2.6, 8000);
     (this.core.material as THREE.PointsMaterial).opacity = 0.75;
     for (let i = 0; i < 8000; i++) this.coreBase.push({ r: Math.cbrt(Math.random()), theta: Math.random() * Math.PI * 2, phi: Math.acos(2 * Math.random() - 1) });
-    this.capacity = new THREE.Mesh(new THREE.SphereGeometry(1, 48, 32), new THREE.MeshBasicMaterial({ color: shade(tint), transparent: true, opacity: 0.04, blending: blending(), depthWrite: false, side: THREE.DoubleSide }));
+    this.capacity = new THREE.Mesh(new THREE.SphereGeometry(1, 48, 32), new THREE.MeshBasicMaterial({ color: shade(tint), transparent: true, opacity: 0.04, depthWrite: false, side: THREE.DoubleSide }));
     this.coreGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glow, color: 0xffd9a8, transparent: true, opacity: 0.18, blending: THREE.AdditiveBlending, depthWrite: false }));
     this.halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: glow, color: tint, transparent: true, opacity: 0.35, blending: THREE.AdditiveBlending, depthWrite: false }));
     this.pick = new THREE.Mesh(new THREE.SphereGeometry(1, 12, 12), new THREE.MeshBasicMaterial({ visible: false }));
     this.pick.userData.id = node.id;
     this.group.add(this.halo, this.grains, this.capacity, this.coreGlow, this.core, this.pick);
     this.resize(node);
+    this.retheme(); // a blob made after the theme was chosen takes it here
   }
 
   // A node's role can change after its blob exists, so the tint follows the snapshot.
@@ -93,14 +121,13 @@ class Blob {
 
   retheme() {
     (this.grains.material as THREE.PointsMaterial).color.setHex(shade(this.colour));
-    (this.grains.material as THREE.PointsMaterial).blending = blending();
-    (this.core.material as THREE.PointsMaterial).color.setHex(CORE());
-    (this.core.material as THREE.PointsMaterial).blending = blending();
+    (this.core.material as THREE.PointsMaterial).color.setHex(coreColour(this.colour));
     (this.capacity.material as THREE.MeshBasicMaterial).color.setHex(shade(this.colour));
-    (this.capacity.material as THREE.MeshBasicMaterial).blending = blending();
+    style(this.grains.material as THREE.Material, "flat");
+    style(this.core.material as THREE.Material, "normal");
+    style(this.capacity.material as THREE.Material, "multiply");
     (this.halo.material as THREE.SpriteMaterial).color.setHex(this.colour);
-    this.halo.visible = this.coreGlow.visible = dark; // additive glows have no meaning on a light ground
-    for (const m of [this.grains.material, this.core.material, this.capacity.material] as THREE.Material[]) m.needsUpdate = true;
+    this.halo.visible = this.coreGlow.visible = dark; // a glow on a light ground washes out what is under it
   }
 
   resize(node: ViewNode) {
@@ -145,9 +172,10 @@ class Blob {
       arr[i * 3 + 2] = r * sp * Math.sin(th);
     }
     pos.needsUpdate = true;
-    (this.grains.material as THREE.PointsMaterial).opacity = (0.32 + 0.3 * a) * dim;
+    (this.grains.material as THREE.PointsMaterial).opacity = (dark ? 0.32 + 0.3 * a : 1) * dim;
     // the core's volume is the context in use; it can only grow to the capacity shell
     const rc = this.coreCap * Math.cbrt(Math.max(0.01, this.ctxFill));
+    this.coreR = rc;
     const cpos = this.core.geometry.getAttribute("position") as THREE.BufferAttribute;
     const carr = cpos.array as Float32Array;
     for (let i = 0; i < this.coreBase.length; i++) {
@@ -160,13 +188,18 @@ class Blob {
       carr[i * 3 + 2] = r * sp * Math.sin(th);
     }
     cpos.needsUpdate = true;
+    const f = Math.min(1, Math.max(0, this.ctxFill));
+    if (dark) {
+      this.coreLit.setHex(this.colour).multiplyScalar(0.3 + 0.7 * f).lerp(WHITE, 0.35 * f * f);
+      (this.core.material as THREE.PointsMaterial).color.copy(this.coreLit);
+    }
     // Point sprites grow with proximity; up close they would merge into a wall. Shrink them as the camera
     // approaches and fade the glows away once it is inside, so what is left is grains around the viewer.
     const near = Math.min(1, Math.max(0.12, this.camDist / (R * 1.5)));
     const nearCore = Math.min(1, Math.max(0.1, this.camDist / (rc * 4)));
-    (this.grains.material as THREE.PointsMaterial).size = 3.2 * near;
+    (this.grains.material as THREE.PointsMaterial).size = 3.2 * near * (dark ? 1 : 1.3);
     (this.core.material as THREE.PointsMaterial).size = 2.6 * nearCore;
-    (this.core.material as THREE.PointsMaterial).opacity = (0.6 + 0.3 * a + 0.03 * Math.sin(time * 1.5)) * (0.4 + 0.6 * nearCore) * dim * dim; // packed and additive: fades harder than the shells
+    (this.core.material as THREE.PointsMaterial).opacity = (0.6 + 0.3 * a + 0.03 * Math.sin(time * 1.5)) * (0.4 + 0.6 * nearCore) * dim * dim * (dark ? 0.06 + 0.3 * f : 0.8); // packed: fades harder than the shells; dense additive grains saturate to white, so the fill sets how far they build
     this.coreGlow.scale.set(rc * 3, rc * 3, 1);
     (this.coreGlow.material as THREE.SpriteMaterial).opacity = (0.1 + 0.15 * a) * Math.min(1, Math.max(0, (this.camDist - rc * 2) / (rc * 4))) * dim;
     (this.halo.material as THREE.SpriteMaterial).opacity = (0.22 + 0.25 * a) * Math.min(1, Math.max(0, (this.camDist - R * 0.6) / (R * 1.4))) * dim;
@@ -190,14 +223,13 @@ class Stream {
   }
 
   retheme() {
-    const mat = this.points.material as THREE.PointsMaterial;
-    mat.blending = blending(); mat.needsUpdate = true;
+    style(this.points.material as THREE.Material, "flat");
   }
 
   tick(dt: number) {
     const mat = this.points.material as THREE.PointsMaterial;
     mat.opacity = 0.9 * Math.min(this.from.dim, this.to.dim);
-    mat.size = 0.025 * (this.from.radius + this.to.radius); // grains sized with the bodies they join, so the arc reads at any layout scale
+    mat.size = 0.025 * (this.from.radius + this.to.radius) * (dark ? 1 : 1.4); // grains sized with the bodies they join, so the arc reads at any layout scale
     // 1 MB/s ~ 60 grains/s over a 3 s flight: the ~1 MB/s a three-node link carries in generation reads as
     // a steady thread; a prefill burst saturates at the cap
     this.acc.out += dt * Math.min(300, 60 * this.rateOut / 1e6);
@@ -221,9 +253,11 @@ class Stream {
       const x = (1 - u) * (1 - u) * A.x + 2 * (1 - u) * u * mid.x + u * u * B.x;
       const y = (1 - u) * (1 - u) * A.y + 2 * (1 - u) * u * cy + u * u * B.y;
       const z = (1 - u) * (1 - u) * A.z + 2 * (1 - u) * u * mid.z + u * u * B.z + (p.up ? 1 : -1) * lift * 0.25 * Math.sin(u * Math.PI);
+      // Solid ink cannot fade out, so on paper a thread ends where it enters a core instead.
+      if (!dark && (Math.hypot(x - A.x, y - A.y, z - A.z) < this.from.coreR || Math.hypot(x - B.x, y - B.y, z - B.z) < this.to.coreR)) continue;
       parr[k * 3] = x; parr[k * 3 + 1] = y; parr[k * 3 + 2] = z;
       const c = p.up ? cOut : cIn;
-      const f = Math.sin(p.t * Math.PI);
+      const f = dark ? Math.sin(p.t * Math.PI) : 1;
       carr[k * 3] = c.r * f; carr[k * 3 + 1] = c.g * f; carr[k * 3 + 2] = c.b * f;
       k++;
     }
@@ -239,11 +273,12 @@ class Host {
   dim = 1;
   private dimShown = 1;
   constructor(readonly id: string) {
-    this.mesh = new THREE.Mesh(new THREE.SphereGeometry(1, 64, 40), new THREE.MeshBasicMaterial({ color: ENVELOPE(), transparent: true, opacity: 0.035, blending: blending(), depthWrite: false, side: THREE.DoubleSide }));
+    this.mesh = new THREE.Mesh(new THREE.SphereGeometry(1, 64, 40), new THREE.MeshBasicMaterial({ color: ENVELOPE(), transparent: true, opacity: 0.035, depthWrite: false, side: THREE.DoubleSide }));
+    this.retheme();
   }
   retheme() {
     const m = this.mesh.material as THREE.MeshBasicMaterial;
-    m.color.setHex(ENVELOPE()); m.blending = blending(); m.needsUpdate = true;
+    m.color.setHex(ENVELOPE()); style(m, "multiply");
   }
   resize(memTotal: number) {
     this.radius = radiusOf(memTotal);
@@ -251,7 +286,7 @@ class Host {
   }
   tick(dt: number) {
     this.dimShown += (this.dim - this.dimShown) * Math.min(1, dt / 0.35);
-    (this.mesh.material as THREE.MeshBasicMaterial).opacity = 0.035 * (0.25 + 0.75 * this.dimShown);
+    (this.mesh.material as THREE.MeshBasicMaterial).opacity = (dark ? 0.035 : 0.07) * (0.25 + 0.75 * this.dimShown);
   }
 }
 
