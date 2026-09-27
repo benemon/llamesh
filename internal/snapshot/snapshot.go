@@ -42,20 +42,23 @@ func (c *Collector) Poll() *pb.Snapshot {
 			c.props = p
 		}
 	}
-	metrics, merr := c.Client.Metrics()
-	slot, serr := c.Client.Slot()
+	metrics, merr := c.Client.Metrics() // served only when llama-server runs with --metrics
+	var slot *llamaserver.Slot
+	if sl, err := c.Client.Slot(); err == nil {
+		slot = &sl
+	}
 	counters := map[string]link.Counters{}
 	for addr, iface := range c.Ifaces {
 		if cnt, err := link.Read(iface); err == nil {
 			counters[addr] = cnt
 		}
 	}
-	s := c.build(metrics, slot, merr != nil || serr != nil, counters)
+	s := c.build(metrics, slot, merr != nil && slot == nil, counters)
 	c.last = s
 	return s
 }
 
-func (c *Collector) build(metrics map[string]float64, slot llamaserver.Slot, serverStale bool,
+func (c *Collector) build(metrics map[string]float64, slot *llamaserver.Slot, serverStale bool,
 	counters map[string]link.Counters) *pb.Snapshot {
 	now := time.Now()
 	dt := now.Sub(c.lastT).Seconds()
@@ -141,60 +144,73 @@ func (c *Collector) build(metrics map[string]float64, slot llamaserver.Slot, ser
 	return s
 }
 
-// rates fills the server node's live figures from the metrics and the slot, or carries the last poll's
-// forward when the metrics could not be read.
-func (c *Collector) rates(local *pb.Node, s *pb.Snapshot, metrics map[string]float64, slot llamaserver.Slot, dt float64) {
+// rates fills the server node's live figures. The metrics give counter rates, requests in flight and
+// tokens generated; the slot gives the request in flight and its live rates. Either may be missing (a
+// server without --metrics has no metrics); with neither, the last poll's figures carry forward.
+func (c *Collector) rates(local *pb.Node, s *pb.Snapshot, metrics map[string]float64, slot *llamaserver.Slot, dt float64) {
+	if metrics == nil && slot == nil {
+		if c.last != nil {
+			for _, n := range c.last.Nodes {
+				if n.Id == "local" {
+					local.TokensPerS, local.PromptTokensPerS = n.TokensPerS, n.PromptTokensPerS
+					local.RequestsProcessing, local.Slot = n.RequestsProcessing, n.Slot
+				}
+			}
+			s.Totals.TokensPredicted = c.last.Totals.TokensPredicted
+		}
+		return
+	}
+	zero := 0.0
+	local.TokensPerS, local.PromptTokensPerS = &zero, &zero
 	if metrics != nil {
 		rate := func(name string) *float64 {
 			v := 0.0
 			if c.lastM != nil && dt > 0 {
-				v = (metrics[name] - c.lastM[name]) / dt
-				if v < 0 {
-					v = 0
-				}
+				v = max(0, (metrics[name]-c.lastM[name])/dt)
 			}
 			return &v
 		}
 		local.TokensPerS = rate("llamacpp:tokens_predicted_total")
 		local.PromptTokensPerS = rate("llamacpp:prompt_tokens_total")
-		// llamacpp's counters advance when a request completes; while one is in flight the slot's own
-		// progress is the live rate, with a reset (a new request) read as that request's first tokens.
-		if slot.Processing && dt > 0 {
-			live := func(now, prev int) float64 {
-				if now < prev {
-					prev = 0
-				}
-				return float64(now-prev) / dt
-			}
-			g := live(slot.NDecoded, c.lastSlot.NDecoded)
-			p := live(slot.NProcessed, c.lastSlot.NProcessed)
-			if g > 0 || *local.TokensPerS == 0 {
-				local.TokensPerS = &g
-			}
-			if p > 0 || *local.PromptTokensPerS == 0 {
-				local.PromptTokensPerS = &p
-			}
-		} else if c.lastSlot.Processing {
-			// The request just finished: its tokens were counted live as it ran, and the counters now jump
-			// by the whole request at once, which would read as a burst.
-			zero := 0.0
-			local.TokensPerS, local.PromptTokensPerS = &zero, &zero
-		}
-		c.lastSlot = slot
 		rp := int32(metrics["llamacpp:requests_processing"])
 		local.RequestsProcessing = &rp
-		local.Slot = &pb.Slot{Processing: slot.Processing, NPrompt: int32(slot.NPrompt), NCached: int32(slot.NCached),
-			NProcessed: int32(slot.NProcessed), NDecoded: int32(slot.NDecoded)}
 		s.Totals.TokensPredicted = metrics["llamacpp:tokens_predicted_total"]
-	} else if c.last != nil {
-		for _, n := range c.last.Nodes {
-			if n.Id == "local" {
-				local.TokensPerS, local.PromptTokensPerS = n.TokensPerS, n.PromptTokensPerS
-				local.RequestsProcessing, local.Slot = n.RequestsProcessing, n.Slot
-			}
-		}
-		s.Totals.TokensPredicted = c.last.Totals.TokensPredicted
 	}
+	if slot == nil {
+		return
+	}
+	// llamacpp's counters advance when a request completes; while one is in flight the slot's own
+	// progress is the live rate, with a reset (a new request) read as that request's first tokens.
+	if slot.Processing && dt > 0 {
+		live := func(now, prev int) float64 {
+			if now < prev {
+				prev = 0
+			}
+			return float64(now-prev) / dt
+		}
+		g := live(slot.NDecoded, c.lastSlot.NDecoded)
+		p := live(slot.NProcessed, c.lastSlot.NProcessed)
+		if g > 0 || *local.TokensPerS == 0 {
+			local.TokensPerS = &g
+		}
+		if p > 0 || *local.PromptTokensPerS == 0 {
+			local.PromptTokensPerS = &p
+		}
+	} else if c.lastSlot.Processing {
+		// The request just finished: its tokens were counted live as it ran, and the counters now jump
+		// by the whole request at once, which would read as a burst.
+		local.TokensPerS, local.PromptTokensPerS = &zero, &zero
+	}
+	if metrics == nil {
+		rp := int32(0)
+		if slot.Processing {
+			rp = 1
+		}
+		local.RequestsProcessing = &rp
+	}
+	c.lastSlot = *slot
+	local.Slot = &pb.Slot{Processing: slot.Processing, NPrompt: int32(slot.NPrompt), NCached: int32(slot.NCached),
+		NProcessed: int32(slot.NProcessed), NDecoded: int32(slot.NDecoded)}
 }
 
 // rpcNodes adds a node and a link per RPC address on the command line, in that order.

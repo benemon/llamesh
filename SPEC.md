@@ -13,7 +13,7 @@ they run with `-lv 4`, since the default verbosity omits the memory table, and s
 | Fact | Source | Cadence |
 |---|---|---|
 | model path, name, context size, build | `GET /props` | until it answers; a model swap is a new process |
-| tokens/s, prompt tokens/s, requests processing, tokens generated | `GET /metrics` (Prometheus text, `llamacpp:*`) | every poll |
+| tokens/s, prompt tokens/s, requests processing, tokens generated | `GET /metrics` (Prometheus text, `llamacpp:*`), served only with `--metrics`; without it the slot supplies the live rates and requests in flight, and no total | every poll |
 | current request: prompt tokens, cached, processed, generated so far | `GET /slots` | every poll |
 | the server's bind address, API key and RPC nodes | its command line (`ps -o command= -p PID`: `--host`, `--api-key`, `--rpc host:port,...`); its port from `lsof` | on start and every 10 polls |
 | each device's total, model, context and compute memory, local and every RPC node | the server's log at `-lv 4`: `common_memory_breakdown_print` prints one row per device after load | a log file is tailed every poll, the journal read every 10 s; the values change only at load |
@@ -134,7 +134,8 @@ its address.
 Rates are counter deltas between polls. While a request is in flight the slot's own progress is the live
 rate. When a request finishes the counters jump by the whole request; those tokens are counted from the
 slot as they run, so that frame reports no rate. A poll that fails leaves the previous value and sets
-`"stale": true` on the affected node or link. A node that leaves the `--rpc` list is removed at the next
+`"stale": true` on the affected node or link; the server node is stale when neither `/metrics` nor
+`/slots` answers. A node that leaves the `--rpc` list is removed at the next
 rescan. Under heavy prefill the server answers `/slots` slowly and a poll can take several seconds (5 s
 seen); the frame is late.
 

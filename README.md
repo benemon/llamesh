@@ -36,6 +36,8 @@ only the server's address; the server needs no list of collectors.
 - Go 1.26 or later, and Node 20, or 22 or later, to build.
 - Servers run with `-lv 4`. llama.cpp prints the per-device memory table only at that verbosity, and
   without it the collector has no memory figures for the bodies.
+- Servers run with `--metrics` for token counters and the total generated; without it the live figures
+  come from the slot alone.
 - Split models run with `--no-mmap`. `SPEC.md` records the failure seen without it.
 - The collector runs as the user the servers run as, or as root. It reads their log files or their
   journal; without that access it still runs, but without per-device memory, layer ranges or expert
