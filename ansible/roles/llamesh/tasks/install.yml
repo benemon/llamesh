@@ -2,6 +2,7 @@
 #
 # The release is fetched and checked on the control node and copied to the host, so hosts need no
 # route to GitHub. Every archive in a release is listed in its SHA256SUMS, which is what cosign signs.
+# The control-node tasks run in check mode too: they write only the control node's cache.
 ---
 - name: Find the latest release
   ansible.builtin.uri:
@@ -10,6 +11,7 @@
       Accept: application/vnd.github+json
   register: _llamesh_latest
   delegate_to: localhost
+  check_mode: false
   become: false
   run_once: true
   when: llamesh_version == 'latest'
@@ -30,6 +32,7 @@
     state: directory
     mode: "0755"
   delegate_to: localhost
+  check_mode: false
   become: false
 
 - name: Fetch the checksums and their signature
@@ -39,6 +42,7 @@
     mode: "0644"
   loop: [SHA256SUMS, SHA256SUMS.cosign.bundle]
   delegate_to: localhost
+  check_mode: false
   become: false
   throttle: 1
 
@@ -55,6 +59,7 @@
       - https://token.actions.githubusercontent.com
       - "{{ _llamesh_dir }}/SHA256SUMS"
   delegate_to: localhost
+  check_mode: false
   become: false
   run_once: true
   changed_when: false
@@ -69,6 +74,7 @@
   vars:
     _llamesh_sums: "{{ lookup('ansible.builtin.file', _llamesh_dir ~ '/SHA256SUMS') }}"
   delegate_to: localhost
+  check_mode: false
   become: false
   throttle: 1
 
@@ -78,6 +84,7 @@
     argv: [tar, -xzf, "{{ _llamesh_dir }}/{{ _llamesh_archive }}", -C, "{{ _llamesh_dir }}/{{ _llamesh_os }}_{{ _llamesh_arch }}"]
     creates: "{{ _llamesh_dir }}/{{ _llamesh_os }}_{{ _llamesh_arch }}/llamesh"
   delegate_to: localhost
+  check_mode: false
   become: false
   throttle: 1
 

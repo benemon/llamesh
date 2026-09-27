@@ -3,8 +3,8 @@
 - name: Check what this host runs
   ansible.builtin.assert:
     that:
-      - llamesh_server or llamesh_collector
-      - not llamesh_collector or llamesh_server_host
+      - llamesh_server or llamesh_collector | length > 0
+      - llamesh_collector | length == 0 or llamesh_server_host | length > 0
     fail_msg: Set llamesh_server, or llamesh_collector with llamesh_server_host, or both.
     quiet: true
 
@@ -14,7 +14,7 @@
     _llamesh_arch: "{{ {'x86_64': 'amd64', 'amd64': 'amd64', 'aarch64': 'arm64', 'arm64': 'arm64'}[ansible_facts.architecture] }}"
     _llamesh_bin: "{{ ansible_facts.user_dir ~ '/.local/bin/llamesh' if ansible_facts.system == 'Darwin' else '/usr/local/bin/llamesh' }}"
     _llamesh_token_path: "{{ ansible_facts.user_dir ~ '/.config/llamesh/token' if ansible_facts.system == 'Darwin' else '/etc/llamesh/token' }}"
-    _llamesh_modes: "{{ (['server'] if llamesh_server else []) + (['collector'] if llamesh_collector else []) }}"
+    _llamesh_modes: "{{ (['server'] if llamesh_server else []) + (['collector'] if llamesh_collector | length > 0 else []) }}"
 
 - name: Install the release
   ansible.builtin.import_tasks: install.yml
