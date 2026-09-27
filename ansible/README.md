@@ -32,6 +32,8 @@ ansible-galaxy collection install git+https://github.com/benemon/llamesh.git#/an
 
 The server's host generates the ingest token once and keeps it at `/etc/llamesh/token` on Linux or `~/.config/llamesh/token` on macOS. Collectors read it from there, so the server's host must be in every play that configures a collector.
 
+With both `llamesh_tls_cert` and `llamesh_tls_key` set on the server's host, the server serves the ingest port over TLS, and the collectors that report to it connect with `-tls`. With either empty, the ingest port is plaintext. Collectors check the certificate against their host's trusted roots and the address in `llamesh_collector`, so it must chain to a CA each collector's host trusts and name that address; an IP address needs an IP subject alternative name. On Linux the server reads them through `LoadCredential=`, which needs systemd 248 or later.
+
 A collector on macOS that reports to another host needs the Local Network permission for the binary, granted once in System Settings. See [the main README](../README.md) for the permissions and the llama-server flags llamesh reads.
 
 ## Role variables
@@ -48,6 +50,8 @@ A collector on macOS that reports to another host needs the Local Network permis
 | `llamesh_collector` | `""` | Run a collector reporting to this `host:port`. |
 | `llamesh_server_host` | `""` | The server's inventory name, whose token collectors read. |
 | `llamesh_poll` | `1s` | How often a collector reads its llama-servers. |
+| `llamesh_tls_cert` | `""` | The server's certificate as PEM. |
+| `llamesh_tls_key` | `""` | The server's private key as PEM. |
 | `llamesh_collector_user` | `root` | Linux only: the collector's user. It reads the llama-servers' logs and `/proc` entries, so it is their user or root. |
 
 ## Services
@@ -59,4 +63,4 @@ A collector on macOS that reports to another host needs the Local Network permis
 | Logs | `~/Library/Logs/llamesh-*.log` | `journalctl -u llamesh-*` |
 | Binary | `~/.local/bin/llamesh` | `/usr/local/bin/llamesh` |
 
-A changed binary, unit or token restarts the services that use it.
+A changed binary, unit, token, certificate or key restarts the services that use it.

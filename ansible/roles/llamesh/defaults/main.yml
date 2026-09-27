@@ -17,6 +17,10 @@ llamesh_ingest: ":8900"
 llamesh_collector: ""
 llamesh_server_host: ""
 llamesh_poll: 1s
+# The server's certificate and key, as PEM. With both set the ingest port is served over TLS and
+# collectors connect with -tls; with either empty it is plaintext.
+llamesh_tls_cert: ""
+llamesh_tls_key: ""
 # Linux only: the user the collector runs as. It reads the llama-servers' logs, /proc entries and
 # journal, so it is their user or root.
 llamesh_collector_user: root

@@ -21,11 +21,9 @@
 
 - name: Read the server's token
   ansible.builtin.slurp:
-    src: "{{ hostvars[_llamesh_token_host]._llamesh_token_path }}"
-  vars:
-    _llamesh_token_host: "{{ llamesh_server_host if llamesh_collector | length > 0 else inventory_hostname }}"
-  delegate_to: "{{ _llamesh_token_host }}"
-  become: "{{ hostvars[_llamesh_token_host]._llamesh_os == 'linux' }}"
+    src: "{{ hostvars[_llamesh_server_name]._llamesh_token_path }}"
+  delegate_to: "{{ _llamesh_server_name }}"
+  become: "{{ hostvars[_llamesh_server_name]._llamesh_os == 'linux' }}"
   register: _llamesh_token_file
   ignore_errors: "{{ ansible_check_mode }}" # a first dry run has no token file yet
   no_log: true

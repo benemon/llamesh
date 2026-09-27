@@ -7,10 +7,17 @@ After=network-online.target
 [Service]
 EnvironmentFile=/etc/llamesh/{{ _llamesh_mode }}.env
 {% if _llamesh_mode == 'server' %}
+{% if _llamesh_tls %}
+# The dynamic user cannot read root's files; systemd passes it copies under %d.
+LoadCredential=tls.crt:/etc/llamesh/tls.crt
+LoadCredential=tls.key:/etc/llamesh/tls.key
+ExecStart={{ _llamesh_bin }} -server -listen {{ llamesh_listen }} -ingest {{ llamesh_ingest }} -tls-cert %d/tls.crt -tls-key %d/tls.key
+{% else %}
 ExecStart={{ _llamesh_bin }} -server -listen {{ llamesh_listen }} -ingest {{ llamesh_ingest }}
+{% endif %}
 DynamicUser=yes
 {% else %}
-ExecStart={{ _llamesh_bin }} -collector {{ llamesh_collector }} -poll {{ llamesh_poll }}
+ExecStart={{ _llamesh_bin }} -collector {{ llamesh_collector }} -poll {{ llamesh_poll }}{{ ' -tls' if _llamesh_tls else '' }}
 # It reads the llama-servers' logs, /proc entries and journal.
 User={{ llamesh_collector_user }}
 {% if llamesh_collector_user != 'root' %}
