@@ -24,7 +24,11 @@ curl -sf http://127.0.0.1:8896/health
 # as root: the server's journal and /proc belong to other users
 sudo -E "$OUT/llamesh" -collector 127.0.0.1:8900 > "$OUT/collector.log" 2>&1 &
 sleep 12
-( for _ in 1 2 3; do curl -s http://127.0.0.1:8896/completion -d '{"prompt":"Describe an orbit.","n_predict":96}' >/dev/null; done ) &
+# A small model on CPU finishes a short request between polls, so requests run back to back for the
+# whole capture, each long enough (ignore_eos) to be seen in flight.
+( end=$((SECONDS + 28)); while [ $SECONDS -lt $end ]; do
+    curl -s http://127.0.0.1:8896/completion -d '{"prompt":"Describe an orbit.","n_predict":512,"ignore_eos":true}' >/dev/null
+  done ) &
 requests=$!
 timeout 30 curl -sN http://127.0.0.1:8899/api/stream > "$OUT/stream.txt" || true
 wait "$requests" || true
