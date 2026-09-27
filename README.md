@@ -1,125 +1,92 @@
 # llamesh
 
-When a llama.cpp model is split across machines, or several models share one, there is no view of where
-the layers went, how full each device is, or what the RPC link is carrying while a request runs. llamesh
-draws that from the running servers. A collector on each host finds its llama-servers, reads their
-metrics, slots and the memory table they print at load, and serves a page in which every model is a
-particle body inside the envelope of the device holding it, with streams between bodies for the bytes an
-RPC split moves.
+Live 3D view of the llama.cpp servers on your machines.
 
-## What it shows
+I built this because I was splitting a model across two Macs with llama.cpp's RPC backend and had no
+way to see what was going on: which layers ended up where, how much memory each device had left, or how
+much traffic the Thunderbolt link was carrying during a request. Log grepping got old.
 
-One server on one host. The body is the model's weights and cache. The shell around it is the device's
-memory. The gap between them is the headroom.
+llamesh is a small Go program you run on each host. It finds the `llama-server` processes itself, reads
+their metrics and the memory table they print at load, and serves a page. Each model is a cloud of
+particles sized by the memory it holds, sitting inside a faint sphere sized by the device's memory, so
+you can see headroom. RPC links are drawn as streams of particles moving at the rate bytes actually
+cross the wire. Zoom into a model and you pass through its layers to the context cache in the middle.
 
 ![one model](docs/single-model.jpg)
 
-Two servers on one host, a chat model and an embedder, inside the same envelope.
-
 ![two models on one host](docs/multi-model.jpg)
 
-A model split over llama.cpp's RPC backend to a second machine, during prompt processing. Each device
-holds its range of layers, and the stream is the tensors crossing the link.
+![a model split to an RPC node, during prompt processing](docs/rpc-link.jpg)
 
-![an RPC split](docs/rpc-link.jpg)
+![both](docs/multi-model-rpc-link.jpg)
 
-Both together, during generation.
+Hover a model in the list to fade everything else out, click to keep it that way. Click a body for the
+numbers behind it; tick any of them to pin it as a label. Theme toggle top right.
 
-![two models and an RPC split](docs/multi-model-rpc-link.jpg)
-
-## Reading the page
-
-- The panel at the top left lists every server with its colour, host and port, context, layers, rate and
-  request state. Roll over an entry to fade everything that is not part of that server's picture; click
-  to pin the focus, click again to release it. The totals sit under the separator.
-- Click a body for every figure the collector has for it. Tick a figure to pin it as a label on the body.
-- Drag to orbit, two-finger drag or right-drag to pan, pinch or scroll to zoom. Zooming into a body
-  passes through the shells of its layers to the context cache at its core.
-- The toggle at the top right selects dark, light or the system theme.
-
-## How it works
-
-The collector is one Go binary built on the standard library. On its host it:
-
-- lists the `llama-server` processes listening on TCP, and reads each one's command line for its bind
-  address, API key and `--rpc` list, and its log file for the memory table printed at load;
-- reads `/props` once the model has loaded, then `/metrics` and `/slots` on every poll;
-- reads the interface counters on the route to each RPC node for the bytes moving;
-- names RPC nodes from what they advertise over mDNS, with reverse DNS as the fallback;
-- serves the page and a Server-Sent Events stream with one snapshot per server per poll.
-
-Every per-device figure comes from the server's own log at `-lv 4`. The collector never connects to an
-RPC node. `SPEC.md` lists each figure and the source it is read from.
-
-The page composes several collectors. One collector is given the addresses of the others and proxies
-their streams under its own API, so the browser talks to one origin even when the other hosts sit on a
-link it cannot reach.
-
-## Building
-
-Prerequisites: Go 1.26 or later, Node 20 or 22.
-
-1. `make` builds the page with Vite, embeds it, and produces `./llamesh` for the current platform.
-2. `go test ./...` runs the parsers against the recorded outputs in `testdata/`.
-
-### Working on the page without a collector
-
-1. `cd web && npm run dev`.
-2. Open the URL it prints with `?mock=1`.
-
-`?mock=single`, `multi`, `rpc` or `multi-rpc` picks a scenario. `&phase=prefill`, `generating` or `idle`
-holds one phase of the mock's cycle, for screenshots.
+Nothing on the page is configured. If it's drawn, it was read from a running server. The only config
+is a list of other collectors to pull into the same page.
 
 ## Running
 
-Prerequisites: serve split models with `-lv 4`, so the memory table is printed, and with `--no-mmap`, so
-the local device does not map the whole file. `SPEC.md` explains both.
-
 ```
+make
 ./llamesh
 ```
 
-watches every llama-server on the host and serves the page on `http://127.0.0.1:8899`.
+Needs Go 1.26 and Node 20 or 22 to build. The page is embedded in the binary; it serves on
+`127.0.0.1:8899` by default.
 
-| Flag | Default | Meaning |
+| flag | default | |
 |---|---|---|
-| `-listen` | `127.0.0.1:8899` | address for the page and API. A collector that another host's page composes listens on an address that host can reach. |
-| `-poll` | `1s` | how often the live sources are read |
-| `-target` | | `http://127.0.0.1:PORT`, to watch one server rather than all of them |
-| `-sources` | | file listing other collectors to compose, see below |
+| `-listen` | `127.0.0.1:8899` | where to serve |
+| `-poll` | `1s` | |
+| `-target` | | `http://127.0.0.1:PORT` to watch one server instead of all of them |
+| `-sources` | | file listing other collectors, see below |
 
-### Composing hosts
+Two things about the servers themselves. Run them with `-lv 4`, otherwise llama.cpp doesn't print the
+per-device memory table and the collector has nothing to size the bodies from. And run split models
+with `--no-mmap`: with mmap the local Metal device maps the whole file, including the part the RPC node
+holds, and you'll hit the wired memory limit at the first compute. Details in `SPEC.md`.
 
-The sources file has one line per collector, as a scrape list does:
+### More than one host
+
+Run a collector on each host. Give one of them a file naming the others:
 
 ```yaml
 sources:
-  - http://collector-2.example:8899
+  - http://10.0.0.2:8899
 ```
 
-The collector reads the `- url` lines; the `sources:` key is not parsed. The page on the collector given
-this file draws its own host's servers with theirs. Every name and figure comes from the collectors; the
-file says only where they are.
+That collector proxies their streams under its own API, so the browser only ever talks to one address.
+Useful when the other hosts are on a link the browser can't reach, like a Thunderbolt bridge. Only the
+`- url` lines are read; it isn't a real YAML parser.
 
-### Deployment
+The collector has to run as the same user as the servers, because it reads their log files. On macOS,
+if a collector needs to reach another machine, the binary needs Local Network permission the first time
+(System Settings, Privacy & Security), and if the target machine has the firewall on, the binary has to
+be allowed there. That caught me out twice.
 
-1. Run each collector as a user service on its host, as the user the servers run as: it reads their log
-   files.
-2. Put a TLS proxy in front of the collector whose page people open. The page uses relative URLs, so it
-   works at `/` and behind a path alike.
-3. On macOS, a collector reaching another host's address needs the Local Network permission granted once
-   for the binary, and a host with the application firewall on needs the binary allowed for incoming
-   connections. See Apple's documentation on [Local Network privacy](https://developer.apple.com/documentation/technotes/tn3179-understanding-local-network-privacy).
+## What it reads
 
-## Contributing
+- `lsof` for the listening `llama-server` processes, `ps` for each one's arguments (`--host`,
+  `--api-key`, `--rpc`) and `lsof` again for its stderr file.
+- `/props` once the model is up, then `/metrics` and `/slots` every poll.
+- The `common_memory_breakdown_print` table in the server log, which is where every per-device number
+  comes from. The collector never talks to an RPC node directly; llama.cpp's RPC server only takes one
+  client and doesn't like being poked.
+- Interface counters on whatever interface routes to each RPC node, for the link rates.
+- mDNS for the RPC nodes' names, reverse DNS if that fails.
 
-Everything drawn is discovered from the running servers. A change that adds a figure adds the source it
-is read from, verified against a real llama.cpp build, a recording of that source in `testdata/` with a
-test, and a line in `SPEC.md`. Configuration names where collectors are, and nothing about what they draw.
+`SPEC.md` has the full list, with the llama.cpp version everything was checked against and the things
+that turned out not to be readable.
 
-- Go: standard library only.
-- Page: TypeScript with Three.js. Keep the mock in `web/src/data.ts` able to show a change without a lab.
+## Hacking on it
 
-## Licence
+`go test ./...` runs the parsers against recorded output in `testdata/`. `cd web && npm run dev` then
+`?mock=1` gives you the page without a collector; `?mock=single|multi|rpc|multi-rpc` picks a scenario
+and `&phase=prefill|generating|idle` freezes it, which is how the screenshots above were taken.
 
-Apache License 2.0. See `LICENSE`.
+Go side is standard library only and I'd like to keep it that way. If you add something the page
+draws, add where it comes from to `SPEC.md` and a recording of it to `testdata/`.
+
+Apache 2.0.
