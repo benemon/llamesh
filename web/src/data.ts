@@ -83,8 +83,8 @@ function stream(onSnapshot: Listener, onState: StateListener): () => void {
 
 // Mock source for working on the page without a collector: ?mock=<scenario>, one of single (one
 // server), multi (two servers on one host), rpc (one server split to an RPC node), multi-rpc (both;
-// also ?mock=1). The chat model cycles idle -> prefill burst -> generation with the rates measured on
-// the split gpt-oss-20b test; &phase= holds one of them.
+// also ?mock=1). The chat model cycles idle -> prefill burst -> generation at 8 tok/s, with 60 MB/s on
+// the link during prefill and 2.6 MB/s during generation; &phase= holds one of them.
 function mock(onSnapshot: Listener, onState: StateListener): () => void {
   const scenario = new URLSearchParams(location.search).get("mock") ?? "multi-rpc";
   const withRPC = scenario === "rpc" || scenario === "multi-rpc" || scenario === "1";
