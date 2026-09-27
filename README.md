@@ -33,7 +33,9 @@ only the server's address; the server needs no list of collectors.
 - The server and the collector run on macOS and Linux, WSL2 included. The collector needs `lsof`, and on
   Linux `ip`, and `journalctl` for a server run under systemd. CI runs the Linux path end to end on a CPU
   host. GPUs other than Apple's are expected to work the same way but are untested.
-- Go 1.26 or later, and Node 20, or 22 or later, to build.
+- The GitHub CLI, `gh`, signed in, to download a release and verify its attestation; `cosign` to verify
+  its signature.
+- Go 1.26 or later, and Node 20, or 22 or later, to build from source.
 - Servers run with `-lv 4`. llama.cpp prints the per-device memory table only at that verbosity, and
   without it the collector has no memory figures for the bodies.
 - Servers run with `--metrics` for token counters and the total generated; without it the live figures
@@ -45,16 +47,42 @@ only the server's address; the server needs no list of collectors.
 
 ## Running
 
+Each release carries the binary, with the page embedded, for `linux_amd64`, `linux_arm64`,
+`darwin_amd64` and `darwin_arm64`. To install one:
+
 ```
-make
+V=v0.1.1 A=darwin_arm64
+gh release download $V -R benemon/llamesh -p "llamesh_${V}_${A}.tar.gz" -p SHA256SUMS
+sha256sum -c --ignore-missing SHA256SUMS
+gh attestation verify "llamesh_${V}_${A}.tar.gz" -R benemon/llamesh
+tar -xzf "llamesh_${V}_${A}.tar.gz"
+```
+
+`shasum -a 256` takes the place of `sha256sum` where it is absent. `gh attestation verify` checks that
+the archive was built by this repository's release workflow. The release also signs `SHA256SUMS` with
+cosign:
+
+```
+cosign verify-blob --bundle SHA256SUMS.cosign.bundle \
+  --certificate-identity-regexp '^https://github.com/benemon/llamesh/\.github/workflows/release\.yml@' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com SHA256SUMS
+```
+
+The binary runs in one of two modes. On one host, run the server:
+
+```
 ./llamesh -server
+```
+
+On each host with llama-servers, run a collector:
+
+```
 ./llamesh -collector server.example:8900
 ```
 
-`make` builds the page with Vite, embeds it, and produces `./llamesh`. The same binary runs in one of
-two modes. `-server` accepts collectors on port 8900 and serves the page on `http://127.0.0.1:8899`.
-`-collector` watches every llama-server on its host and streams to the server at the address given. It
-reconnects when the server restarts, and it can run on the same host as the server.
+`-server` accepts collectors on port 8900 and serves the page on `http://127.0.0.1:8899`. `-collector`
+watches every llama-server on its host and streams to the server at the address given. It reconnects
+when the server restarts, and it can run on the same host as the server.
 
 When `LLAMESH_TOKEN` is set in the environment of both, collectors present it and the server refuses any
 collector that does not. It is read from the environment so it does not appear in the process list.
@@ -67,6 +95,14 @@ collector that does not. It is read from the environment so it does not appear i
 | `-tls` | collector | | connect over TLS, verified against the system roots |
 | `-poll` | collector | `1s` | how often `/metrics` and `/slots` are read |
 | `-target` | collector | | watch only the server on this port; the port of the URL is used and the rest ignored |
+
+### From source
+
+```
+make
+```
+
+`make` builds the page with Vite, embeds it, and produces `./llamesh`.
 
 ### Deployment
 
