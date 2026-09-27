@@ -6,9 +6,9 @@ dated figures are observations from that setup.
 
 ## Sources
 
-All read on the host running llama-server, by the user the server runs as. Two conditions on the
-servers: they run with `-lv 4`, since the default verbosity omits the memory table, and split models run
-with `--no-mmap` (see Operating notes).
+All read on the host running llama-server, by the user the server runs as. Two conditions on the servers:
+they run with `-lv 4`, since the default verbosity omits the memory table, and split models run with
+`--no-mmap` (see Operating notes).
 
 | Fact | Source | Cadence |
 |---|---|---|
@@ -16,18 +16,28 @@ with `--no-mmap` (see Operating notes).
 | tokens/s, prompt tokens/s, requests processing, tokens generated | `GET /metrics` (Prometheus text, `llamacpp:*`) | every poll |
 | current request: prompt tokens, cached, processed, generated so far | `GET /slots` | every poll |
 | the server's bind address, API key and RPC nodes | its command line (`ps -o command= -p PID`: `--host`, `--api-key`, `--rpc host:port,...`); its port from `lsof` | on start and every 10 polls |
-| each device's total, model, context and compute memory, local and every RPC node | the server's log at `-lv 4`: `common_memory_breakdown_print` prints one row per device after load | the log is tailed every poll; the values change only at load |
+| each device's total, model, context and compute memory, local and every RPC node | the server's log at `-lv 4`: `common_memory_breakdown_print` prints one row per device after load | a log file is tailed every poll, the journal read every 10 s; the values change only at load |
+| a CPU-only server's model, context and compute memory | the same table's host-memory rows (`Host`, `CPU_REPACK`), which carry no device total | as above |
+| a CPU-only server's total | the machine's RAM: `sysctl -n hw.memsize` on macOS, `/proc/meminfo` on Linux | on start |
 | layers, experts, experts used | `print_info:` lines in the same log | as above |
-| link bytes | `netstat -ibn` counters for the interface `route -n get` names for each RPC host | every poll |
+| link bytes | on macOS `netstat -ibn` counters for the interface `route -n get` names for each RPC host; on Linux `/proc/net/dev` for the interface `ip route get` names | every poll |
 
-The memory figures are the server's own. The layer range shown for each device is derived. llama.cpp
-assigns repeating layers contiguously in device order in proportion to bytes. It prints no per-layer
-assignment. The range therefore follows from each device's share of the model bytes. The link counters
+The memory figures are the server's own. The table lists devices in llama.cpp's device order, RPC
+devices first. The layer range shown for each device is derived. llama.cpp assigns repeating layers
+contiguously in device order in proportion to bytes. It prints no per-layer assignment. The range
+therefore follows from each device's share of the model bytes, in the table's order.
+
+Every device that is not an RPC device is local: `MTL0`, `CUDA0`, `Vulkan0` and so on. The first is drawn
+as the server; each further one, such as a second GPU, is a node of its own in the same host. A server
+with no local device rows runs on the CPU alone, and its host-memory rows together are its local device,
+`CPU`. On a host with a GPU the host-memory rows are left out, so a partial offload's CPU layers are not
+shown. The link counters
 are the whole interface's; two RPC nodes behind one interface show the same figures.
 
 The collector does not connect to an RPC node. `ggml-rpc-server` serves one client at a time and keeps a
 connection whose peer vanished without a close, so a probe from the collector could block the server's
-next load; see llama.cpp's [RPC server documentation](https://github.com/ggml-org/llama.cpp/blob/master/tools/rpc/README.md).
+next load; see llama.cpp's [RPC server
+documentation](https://github.com/ggml-org/llama.cpp/blob/master/tools/rpc/README.md).
 
 ## Operating notes
 
@@ -43,53 +53,66 @@ has no RPC row, so the page shows one node. A load that hangs with the node list
 holding a dead connection; restarting the node's RPC server clears it.
 
 Measured on a split gpt-oss-20b, 2026-09-24, tensor-split 1,1, a Mac mini and a MacBook over a
-Thunderbolt bridge: load with a cold node uploaded 12.4 GB in 25 s, and 0.2 GB in 16 s with the node's file
-cache warm. Generation ran at 36 tokens/s against 42 alone, with 110 to 126 KB crossing the bridge per
-generated token in both directions combined. Prefill of a 4076-token prompt moved 170 MB out and 57 MB
-back, about 56 KB per prompt token, at 660 tokens/s. The stream animation is scaled to these figures.
+Thunderbolt bridge: load with a cold node uploaded 12.4 GB in 25 s, and 0.2 GB in 16 s with the node's
+file cache warm. Generation ran at 36 tokens/s against 42 alone, with 110 to 126 KB crossing the bridge
+per generated token in both directions combined. Prefill of a 4076-token prompt moved 170 MB out and 57
+MB back, about 56 KB per prompt token, at 660 tokens/s. The stream animation is scaled to these figures.
 
-## Collector
+## Collector and server
 
-The collector is one Go binary per host, depending on the standard library only. Flags: `-listen`
-(default `127.0.0.1:8899`), `-poll` (default `1s`), `-target http://127.0.0.1:PORT` to watch only the
-server on that port (the port is used; the rest of the URL is ignored), and `-sources`, a file naming
-other collectors:
+One Go binary runs in either mode. A collector runs on each host with llama-servers. It dials the server
+and holds one gRPC stream open, contracted in `proto/llamesh/v1/llamesh.proto`: a `Hello` with the host's
+name, its interface addresses and the build from `git describe`, then a `Snapshot` per llama-server per
+poll, and a `Gone` when a llama-server exits. The stream is bidirectional though the server sends
+nothing, so a collector with nothing to send still learns from its receive side that the server ended the
+stream, refused it, or went away. It then reconnects with backoff from 1 s to 30 s. What was queued while
+the server was unreachable is discarded on reconnecting, and gRPC keepalives on both ends find a peer
+that vanished without closing in about 40 s.
 
-```yaml
-sources:
-  - http://10.0.0.2:8899
-```
+Collector flags: `-collector host:port` (the server), `-tls` to connect over TLS verified against the
+system roots, `-poll` (default `1s`), and `-target http://127.0.0.1:PORT` to watch only the server on
+that port (the port is used; the rest of the URL is ignored). Server flags: `-server`, `-listen` for the
+page (default `127.0.0.1:8899`), `-ingest` for collectors (default `:8900`), and `-tls-cert` with
+`-tls-key` to serve the ingest port over TLS. When `LLAMESH_TOKEN` is set, the server refuses a stream
+whose bearer token differs, and collectors present theirs; it is read from the environment so it stays
+out of the process list.
 
-Every line beginning `- ` is read as a URL; the `sources:` key is not parsed. The collector proxies each
-listed collector's stream under `/api/sources/<host:port>/stream`, so the browser connects to one origin
-when the sources sit on a link it cannot reach, and `GET /api/sources` lists the keys. A source's
-hostname, model and figures come from its own snapshot.
+The server refuses a snapshot before the stream's `Hello`, and keys each picture by the `Hello`'s host
+and the snapshot's port. It names an RPC node after the collector whose `Hello` addresses include the
+node's address, over the name the node's own server discovered. What a stream reported belongs to that
+stream: a `Gone` withdraws one picture from what newly opened pages receive, and the end of the stream
+withdraws the rest and its addresses, unless a newer stream from the same collector has taken them over.
+Pages already open drop a withdrawn picture as they drop any quiet one. A page opened later receives the
+latest snapshot of every picture refreshed in the last 30 s.
 
 Target discovery: every `llama-server` process listening on TCP (`lsof -nP -iTCP -sTCP:LISTEN`, by
 command name) is a target, including embedding servers. The listeners are re-read every 10 polls: a
-server that has exited is dropped with its picture; a new one is bound. With none, the collector
-publishes an empty picture until one appears. The process's file descriptor 2 (`lsof -p PID -a -d 2`)
-gives the log the memory table is read from; under a service manager that is its stderr file. The API
-key goes in the bearer header and appears in no response or log line.
+server that has exited is dropped with its picture; a new one is bound. The process's file descriptor 2
+(`lsof -p PID -a -d 2`, or `/proc/PID/fd/2` where `lsof` does not name it) gives the log the memory table
+is read from. When it is a file, that file is tailed. When it is a socket, as for a service whose output
+systemd sends to the journal, the table is read with `journalctl _PID=PID`. The API key goes in the bearer header and appears in no response or log line.
 
-Endpoints: `GET /` the page; `GET /api/stream`, Server-Sent Events, one JSON snapshot per server per
-poll, keyed on the page by `source` and `target`:
+The server's endpoints: `GET /` the page, and `GET /api/stream`, Server-Sent Events carrying every
+collector's snapshots, keyed on the page by `source` and `target`. Each is the protobuf JSON rendering of
+`Snapshot` with the field names as written in the contract and every non-optional field present, so empty
+lists arrive as `[]`. Byte counts and rates are doubles in the contract because the JSON rendering turns
+64-bit integers into strings:
 
 ```json
 {"t": 1790400000.0, "source": "orion", "target": "8896",
  "model": {"path": "...gguf", "name": "gpt-oss-120b-F16", "n_ctx": 131072, "build": "b10566-bb4caa754",
            "structure": {"n_layer": 36, "n_expert": 128, "n_expert_used": 4}},
  "nodes": [
-   {"id": "local", "kind": "llama-server", "device": "MTL0", "label": "orion",
+   {"id": "local", "kind": "KIND_LLAMA_SERVER", "device": "MTL0", "label": "orion",
     "mem_total": 62277025792, "mem_model": 44000000000, "mem_context": 3600000000, "mem_compute": 400000000,
-    "layers": [0, 23], "tokens_per_s": 21.4, "prompt_tokens_per_s": 0, "requests_processing": 1,
+    "layers": {"first": 0, "last": 23}, "stale": false, "tokens_per_s": 21.4, "prompt_tokens_per_s": 0, "requests_processing": 1,
     "slot": {"processing": true, "n_prompt": 34813, "n_cached": 30723, "n_processed": 4090, "n_decoded": 120}},
-   {"id": "10.0.0.2:50052", "kind": "rpc", "device": "RPC0", "label": "vega",
+   {"id": "10.0.0.2:50052", "kind": "KIND_RPC", "device": "RPC0", "label": "vega",
     "mem_total": 28588376064, "mem_model": 22000000000, "mem_context": 3000000000, "mem_compute": 400000000,
-    "layers": [24, 35]}
+    "layers": {"first": 24, "last": 35}, "slot": null, "stale": false}
  ],
  "links": [{"from": "local", "to": "10.0.0.2:50052", "iface": "bridge0",
-            "bytes_out_per_s": 512000, "bytes_in_per_s": 498000}],
+            "bytes_out_per_s": 512000, "bytes_in_per_s": 498000, "stale": false}],
  "totals": {"tokens_predicted": 12345, "mem_held": 73400000000}}
 ```
 
@@ -99,11 +122,14 @@ An RPC node's `label` is the hostname of the Bonjour host whose mDNS address mat
 2. Browse each type for instances and SRV targets: `dns-sd -Z <type> local.`.
 3. Resolve each target: `dscacheutil -q host -a name <target>`.
 4. Take the target whose address equals the node's IP, stripped of `.local`.
-5. For an address still unnamed, try a reverse lookup: `dscacheutil -q host -a ip_address <ip>`.
+5. For an address still unnamed, try a reverse lookup: `dscacheutil -q host -a ip_address <ip>` on
+   macOS; on Linux, where steps 1 to 4 have no `dns-sd`, `avahi-resolve-address <ip>` and then
+   `getent hosts <ip>`.
 
 With no match the label is `RPC<n>`, the node's position in the `--rpc` list. The local node's label is
-`scutil --get LocalHostName`. Each `dns-sd` call is given a 2 s window and killed, since it does not exit
-on its own. An RPC node's `id` is always its address.
+`scutil --get LocalHostName`, or the host name without `.local` where `scutil` is absent. Each `dns-sd`
+call is given a 2 s window and killed, since it does not exit on its own. An RPC node's `id` is always
+its address.
 
 Rates are counter deltas between polls. While a request is in flight the slot's own progress is the live
 rate. When a request finishes the counters jump by the whole request; those tokens are counted from the
@@ -124,14 +150,14 @@ The page is TypeScript, built with Vite and Three.js, and embedded in the binary
   brightens.
 - One stream per link: grains travelling along the arc from `from` to `to` at a rate proportional to
   `bytes_out_per_s`, and back for `bytes_in_per_s`, sized with the bodies they join.
-- The page subscribes to its own collector's stream and to every key `GET /api/sources` lists, and
-  composes one view keyed by collector and server port, with node ids namespaced by that key and context
-  fill per server. The primary is the server on the page's own collector holding the most memory. A server
-  that goes quiet is shown stale after 3 s and dropped after 30 s; the source list is re-read every 30 s.
-- Hosts: a server belongs to its collector's host, an RPC node to the host its discovered name resolves
-  to; a host's own collector reports the same name, so its RPC share and its own servers share one host.
-  Each host is a faint envelope sphere sized by its device's memory, which every server on the device
-  reports identically, with its blobs inside: one at the centre, several on a ring each tangent to the
+- The page reads the server's one stream and composes one view keyed by collector host and server port,
+  with node ids namespaced by that key and context fill per server. The primary, at the centre, is the
+  server holding the most memory. A server that goes quiet is shown stale after 3 s and dropped after 30 s.
+- Hosts: a server and its further local devices belong to its collector's host, an RPC node to the host
+  its discovered name resolves to; a host's own collector reports the same name, so its RPC share and its
+  own servers share one host. Each host is a faint envelope sphere sized by its memory: the sum of one
+  server's local devices, the largest such sum where several servers share a device, since each reports
+  the device's total again. Its blobs sit inside it: one at the centre, several on a ring each tangent to the
   envelope from within. Sizes are volumetric, a 64 GiB body having radius 170.
 - Layout: the primary's host at the centre; other hosts on a sphere around it, azimuth by the golden angle
   and elevation staggered.
@@ -158,6 +184,6 @@ TLS proxy that authenticates clients). `/props` carries no device information.
 
 ## Deployment
 
-A collector listens on loopback where its page is served through a TLS proxy, and on an address the
-composing host can reach where its stream is a source for another page. The service setup and the macOS
-permissions are in the README.
+The server listens for the page on loopback, behind a TLS proxy, and for collectors on an address they
+can reach. Collectors accept no connections. The service setup and the macOS permissions are in the
+README.

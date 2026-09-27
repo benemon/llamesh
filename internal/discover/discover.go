@@ -5,6 +5,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"regexp"
 	"strconv"
@@ -101,26 +102,52 @@ func ParseArgs(cmdline string) Args {
 	return a
 }
 
-// LogPath is the file the process writes stderr to: the LaunchAgent's StandardErrorPath.
-func LogPath(pid int) (string, error) {
-	out, err := exec.Command("lsof", "-p", strconv.Itoa(pid), "-a", "-d", "2", "-F", "n").Output()
-	if err != nil {
-		return "", fmt.Errorf("lsof: %w", err)
-	}
-	for _, line := range strings.Split(string(out), "\n") {
-		if strings.HasPrefix(line, "n/") {
-			return line[1:], nil
+// Stderr is what the process writes stderr to: a path for a file, or a description such as
+// "socket:[4711]" when it is not one (a service whose output goes to the systemd journal).
+func Stderr(pid int) (string, error) {
+	if out, err := exec.Command("lsof", "-p", strconv.Itoa(pid), "-a", "-d", "2", "-F", "n").Output(); err == nil {
+		for _, line := range strings.Split(string(out), "\n") {
+			if strings.HasPrefix(line, "n/") {
+				return line[1:], nil
+			}
 		}
 	}
-	return "", fmt.Errorf("pid %d: stderr is not a file", pid)
+	return os.Readlink("/proc/" + strconv.Itoa(pid) + "/fd/2") // Linux, where lsof may be absent
+}
+
+// MemTotal is the host's physical memory in bytes: the total of a server that runs on the CPU alone,
+// which the memory table does not print.
+func MemTotal() int64 {
+	if out, err := exec.Command("sysctl", "-n", "hw.memsize").Output(); err == nil {
+		if v, err := strconv.ParseInt(strings.TrimSpace(string(out)), 10, 64); err == nil {
+			return v
+		}
+	}
+	b, err := os.ReadFile("/proc/meminfo")
+	if err != nil {
+		return 0
+	}
+	return parseMeminfo(string(b))
+}
+
+func parseMeminfo(s string) int64 {
+	for _, line := range strings.Split(s, "\n") {
+		if f := strings.Fields(line); len(f) >= 2 && f[0] == "MemTotal:" {
+			kb, _ := strconv.ParseInt(f[1], 10, 64)
+			return kb * 1024
+		}
+	}
+	return 0
 }
 
 func LocalHostName() string {
-	out, err := exec.Command("scutil", "--get", "LocalHostName").Output()
-	if err != nil {
-		return ""
+	// macOS's LocalHostName is the name the host advertises over mDNS, which is how other hosts name it;
+	// os.Hostname there can be a DHCP-assigned name.
+	if out, err := exec.Command("scutil", "--get", "LocalHostName").Output(); err == nil {
+		return strings.TrimSpace(string(out))
 	}
-	return strings.TrimSpace(string(out))
+	h, _ := os.Hostname()
+	return strings.TrimSuffix(h, ".local")
 }
 
 var srvLine = regexp.MustCompile(`\sSRV\s+\d+\s+\d+\s+\d+\s+(\S+?)\.?\s`)
@@ -168,16 +195,36 @@ func Names(ips []string, window time.Duration) map[string]string {
 	return names
 }
 
+// reverse names an address through the host's resolver: dscacheutil on macOS (DNS and mDNS), Avahi and
+// then getent on Linux.
 func reverse(ip string) string {
-	out, err := exec.Command("dscacheutil", "-q", "host", "-a", "ip_address", ip).Output()
-	if err != nil {
+	trim := func(h string) string {
+		return strings.TrimSuffix(strings.TrimSuffix(strings.TrimSpace(h), "."), ".local")
+	}
+	if out, err := exec.Command("dscacheutil", "-q", "host", "-a", "ip_address", ip).Output(); err == nil {
+		sc := bufio.NewScanner(strings.NewReader(string(out)))
+		for sc.Scan() {
+			if v, ok := strings.CutPrefix(sc.Text(), "name: "); ok {
+				return trim(v)
+			}
+		}
 		return ""
 	}
-	sc := bufio.NewScanner(strings.NewReader(string(out)))
-	for sc.Scan() {
-		if v, ok := strings.CutPrefix(sc.Text(), "name: "); ok {
-			return strings.TrimSuffix(strings.TrimSuffix(strings.TrimSpace(v), "."), ".local")
+	for _, cmd := range [][]string{{"avahi-resolve-address", ip}, {"getent", "hosts", ip}} {
+		if out, err := exec.Command(cmd[0], cmd[1:]...).Output(); err == nil {
+			if h := secondField(string(out)); h != "" {
+				return trim(h)
+			}
 		}
+	}
+	return ""
+}
+
+// secondField is the name in "address<space>name" output, the shape both avahi-resolve-address and
+// getent hosts print.
+func secondField(out string) string {
+	if f := strings.Fields(out); len(f) >= 2 {
+		return f[1]
 	}
 	return ""
 }
