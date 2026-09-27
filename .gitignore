@@ -7,3 +7,4 @@ internal/web/dist/*
 /bin/
 cover.out
 *.xml
+.ansible/

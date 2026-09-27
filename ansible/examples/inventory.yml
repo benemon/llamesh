@@ -1,0 +1,12 @@
+# One host serves the page; every host with a llama-server runs a collector reporting to it.
+all:
+  vars:
+    llamesh_version: v0.1.0
+    llamesh_server_host: studio
+    llamesh_collector: studio.local:8900
+  hosts:
+    studio: # macOS: the server and a collector
+      ansible_connection: local
+      llamesh_server: true
+    gpu-box: # Linux: a collector only
+      ansible_host: 10.0.0.2

@@ -1,0 +1,36 @@
+# roles/llamesh/tasks/token.yml
+#
+# The server's host generates the token once; collectors read it from there.
+---
+- name: Create the token's directory, which on Linux also holds the units' environment files
+  ansible.builtin.file:
+    path: "{{ _llamesh_token_path | dirname }}"
+    state: directory
+    mode: "0700"
+  become: "{{ _llamesh_os == 'linux' }}"
+
+- name: Generate the token, once
+  ansible.builtin.copy:
+    content: "{{ lookup('ansible.builtin.password', '/dev/null chars=ascii_letters,digits length=48') }}"
+    dest: "{{ _llamesh_token_path }}"
+    mode: "0600"
+    force: false
+  become: "{{ _llamesh_os == 'linux' }}"
+  when: llamesh_server
+  no_log: true
+
+- name: Read the server's token
+  ansible.builtin.slurp:
+    src: "{{ hostvars[_llamesh_token_host]._llamesh_token_path }}"
+  vars:
+    _llamesh_token_host: "{{ llamesh_server_host if llamesh_collector | length > 0 else inventory_hostname }}"
+  delegate_to: "{{ _llamesh_token_host }}"
+  become: "{{ hostvars[_llamesh_token_host]._llamesh_os == 'linux' }}"
+  register: _llamesh_token_file
+  ignore_errors: "{{ ansible_check_mode }}" # a first dry run has no token file yet
+  no_log: true
+
+- name: Keep the token
+  ansible.builtin.set_fact:
+    _llamesh_token: "{{ (_llamesh_token_file.content | default('')) | b64decode | trim }}"
+  no_log: true

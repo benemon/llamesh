@@ -80,6 +80,9 @@ Collectors accept no connections. Then:
    relative URLs and works at `/` or behind a path.
 2. Run a collector as a user service on each host with llama-servers.
 
+The Ansible collection in [`ansible/`](ansible/README.md) does both from a release, with launchd on
+macOS and systemd on Linux.
+
 ## Sources
 
 - `lsof` lists the listening `llama-server` processes. `ps` gives each one's `--host`, `--api-key` and

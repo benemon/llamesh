@@ -1,0 +1,47 @@
+argument_specs:
+  main:
+    short_description: Install and run a llamesh server, a collector, or both.
+    options:
+      llamesh_version:
+        type: str
+        default: latest
+        description: A release tag such as v0.1.0, or latest.
+      llamesh_repo:
+        type: str
+        default: benemon/llamesh
+        description: The GitHub repository releases come from.
+      llamesh_cache_dir:
+        type: path
+        description: Where the control node keeps downloaded releases.
+      llamesh_verify_signature:
+        type: bool
+        default: false
+        description: Verify the cosign signature on the control node.
+      llamesh_server:
+        type: bool
+        default: false
+        description: Serve the page and accept collectors on this host.
+      llamesh_listen:
+        type: str
+        default: 127.0.0.1:8899
+        description: The server's address for the page.
+      llamesh_ingest:
+        type: str
+        default: ":8900"
+        description: The server's address for collectors.
+      llamesh_collector:
+        type: str
+        default: ""
+        description: Run a collector reporting to this host:port.
+      llamesh_server_host:
+        type: str
+        default: ""
+        description: The server's inventory name, whose token collectors read.
+      llamesh_poll:
+        type: str
+        default: 1s
+        description: How often a collector reads its llama-servers.
+      llamesh_collector_user:
+        type: str
+        default: root
+        description: On Linux, the user the collector runs as.

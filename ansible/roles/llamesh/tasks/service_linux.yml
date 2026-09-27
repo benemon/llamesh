@@ -1,0 +1,26 @@
+# roles/llamesh/tasks/service_linux.yml
+---
+- name: Write the token for the unit of {{ _llamesh_mode }}
+  ansible.builtin.copy:
+    content: "LLAMESH_TOKEN={{ _llamesh_token }}\n"
+    dest: "/etc/llamesh/{{ _llamesh_mode }}.env"
+    mode: "0600"
+  become: true
+  register: _llamesh_env
+  no_log: true
+
+- name: Write the unit for {{ _llamesh_mode }}
+  ansible.builtin.template:
+    src: llamesh.service.j2
+    dest: "/etc/systemd/system/llamesh-{{ _llamesh_mode }}.service"
+    mode: "0644"
+  become: true
+  register: _llamesh_unit
+
+- name: Run the unit, restarted when anything it runs has changed, for {{ _llamesh_mode }}
+  ansible.builtin.systemd_service:
+    name: "llamesh-{{ _llamesh_mode }}"
+    enabled: true
+    daemon_reload: "{{ _llamesh_unit.changed }}"
+    state: "{{ 'restarted' if (_llamesh_unit.changed or _llamesh_env.changed or _llamesh_binary.changed) else 'started' }}"
+  become: true

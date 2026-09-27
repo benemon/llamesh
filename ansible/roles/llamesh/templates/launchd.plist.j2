@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- {{ ansible_managed }} -->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>{{ _llamesh_label }}</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>{{ _llamesh_bin }}</string>
+{% if _llamesh_mode == 'server' %}
+        <string>-server</string>
+        <string>-listen</string>
+        <string>{{ llamesh_listen }}</string>
+        <string>-ingest</string>
+        <string>{{ llamesh_ingest }}</string>
+{% else %}
+        <string>-collector</string>
+        <string>{{ llamesh_collector }}</string>
+        <string>-poll</string>
+        <string>{{ llamesh_poll }}</string>
+{% endif %}
+    </array>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>LLAMESH_TOKEN</key>
+        <string>{{ _llamesh_token }}</string>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <key>StandardOutPath</key>
+    <string>{{ ansible_facts.user_dir }}/Library/Logs/llamesh-{{ _llamesh_mode }}.log</string>
+    <key>StandardErrorPath</key>
+    <string>{{ ansible_facts.user_dir }}/Library/Logs/llamesh-{{ _llamesh_mode }}.log</string>
+</dict>
+</plist>

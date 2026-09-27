@@ -1,0 +1,48 @@
+name: Ansible
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  ansible-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Lint the collection
+        run: |
+          python3 -m venv ~/venv && ~/venv/bin/pip install -r ansible/tests/requirements.txt
+          cd ansible && ~/venv/bin/ansible-lint
+
+  ansible-role:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      - name: Install the collection
+        run: |
+          python3 -m venv ~/venv && ~/venv/bin/pip install -r ansible/tests/requirements.txt
+          echo ~/venv/bin >> "$GITHUB_PATH"
+          ~/venv/bin/ansible-galaxy collection install ./ansible
+      - name: Run the role
+        run: ansible-playbook -i localhost, ansible/tests/test.yml
+      - name: Check the services and the page
+        run: |
+          systemctl is-active llamesh-server llamesh-collector
+          curl -fsS http://127.0.0.1:8899/ | grep -q '<title>'
+          sleep 5
+          sudo journalctl -u llamesh-collector --no-pager | grep 'reporting as'
+      - name: Run the role again; nothing changes
+        run: |
+          ansible-playbook -i localhost, ansible/tests/test.yml | tee second.log
+          grep -Eq 'localhost +: ok=[0-9]+ +changed=0 ' second.log

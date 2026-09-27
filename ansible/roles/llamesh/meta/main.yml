@@ -1,0 +1,13 @@
+galaxy_info:
+  author: Benjamin Holmes
+  description: Installs llamesh collectors and a server from the project's signed GitHub releases.
+  license: Apache-2.0
+  min_ansible_version: "2.16"
+  platforms:
+    - name: MacOSX
+      versions: [all]
+    - name: Ubuntu
+      versions: [all]
+    - name: EL
+      versions: [all]
+dependencies: []
