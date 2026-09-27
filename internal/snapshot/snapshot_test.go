@@ -78,3 +78,14 @@ func TestSlotAloneGivesLiveRates(t *testing.T) {
 		t.Fatalf("slot %v requests %v tokens/s %v", n.Slot, n.RequestsProcessing, n.TokensPerS)
 	}
 }
+
+// Recorded on Linux from the journal: a CPU server split to an RPC node lists the RPC device, then its
+// host-memory rows. The RPC device takes the first layers and the CPU the rest.
+func TestCPUServerSplitToAnRPCNode(t *testing.T) {
+	c := &Collector{Log: split(t, "server-cpu-rpc-journal.log"), Args: discover.Args{RPC: []string{"127.0.0.1:50052"}}, HostMem: 16 << 30}
+	s := c.build(nil, nil, false, nil)
+	local, rpc := s.Nodes[0], s.Nodes[1]
+	if local.Device != "CPU" || rpc.Device != "RPC0" || rpc.Layers.First != 0 || local.Layers.Last != 29 || local.Layers.First != rpc.Layers.Last+1 {
+		t.Fatalf("local %s %+v, rpc %s %+v", local.Device, local.Layers, rpc.Device, rpc.Layers)
+	}
+}
