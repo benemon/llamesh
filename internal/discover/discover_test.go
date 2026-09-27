@@ -39,3 +39,15 @@ func TestSRVLine(t *testing.T) {
 		t.Fatalf("got %v", m)
 	}
 }
+
+func TestLinuxLookups(t *testing.T) {
+	if got := parseMeminfo("MemTotal:       16318036 kB\nMemFree:         1234 kB\n"); got != 16318036*1024 {
+		t.Fatalf("meminfo %d", got)
+	}
+	if got := secondField("10.0.0.2\tvega.local\n"); got != "vega.local" {
+		t.Fatalf("avahi %q", got)
+	}
+	if got := secondField("10.0.0.2        vega.example vega\n"); got != "vega.example" {
+		t.Fatalf("getent %q", got)
+	}
+}

@@ -1,15 +1,17 @@
 // Package loadlog reads the per-device memory split from a llama-server log written at -lv 4: the
-// memory breakdown table after load. The last complete table wins; a load prints one before allocation
-// and one after.
+// memory breakdown table after load. The last complete table wins; a GPU load prints one before
+// allocation and one after, a CPU-only load one.
 package loadlog
 
 import (
 	"bufio"
 	"io"
 	"os"
+	"os/exec"
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const MiB = 1048576
@@ -23,9 +25,17 @@ type Device struct {
 	Compute  int64
 }
 
+// Split is the last table: Devices in llama.cpp's device order, which is the order layers are assigned in,
+// and Host, the rows of host-memory buffers (Host, CPU_REPACK), which carry no device total.
 type Split struct {
 	Devices []Device
+	Host    []Device
 	Info    Structure
+}
+
+// Source is where a Split comes from: a log file, or the systemd journal.
+type Source interface {
+	Latest() Split
 }
 
 // Structure is what print_info states about the model at load, as far as the page draws it.
@@ -37,25 +47,30 @@ type Structure struct {
 
 var (
 	tableHead = regexp.MustCompile(`common_memory_breakdown_print: \| memory breakdown \[MiB\]`)
-	tableRow  = regexp.MustCompile(`common_memory_breakdown_print: \|\s+- (\w+)(?: \(([^)]*)\))?\s+\| (\d+) = (\d+) \+ \(\s*(\d+) =\s*(\d+) \+\s*(\d+) \+\s*(\d+)\)`)
-	infoLine  = regexp.MustCompile(`print_info: (\S+(?: \S+)?)\s+= (.+)$`)
+	hostRow   = regexp.MustCompile(`common_memory_breakdown_print: \|\s+- (\w+)\s+\|\s+(\d+) =\s+(\d+) \+\s+(\d+) \+\s+(\d+)\s+\|`)
+	tableRow  = regexp.MustCompile(`common_memory_breakdown_print: \|\s+- (\w+)(?: \(([^)]*)\))?\s+\| ` +
+		`(\d+) = (\d+) \+ \(\s*(\d+) =\s*(\d+) \+\s*(\d+) \+\s*(\d+)\)`)
+	infoLine = regexp.MustCompile(`print_info: (\S+(?: \S+)?)\s+= (.+)$`)
 )
 
 // Parse reads every table in text and returns the state after the last one.
 func Parse(text string) Split {
 	var s Split
-	var current []Device
 	inTable := false
 	for _, line := range strings.Split(text, "\n") {
 		if tableHead.MatchString(line) {
-			current = nil
+			s.Devices, s.Host = nil, nil
 			inTable = true
 			continue
 		}
 		if m := tableRow.FindStringSubmatch(line); m != nil && inTable {
 			mib := func(i int) int64 { v, _ := strconv.ParseInt(m[i], 10, 64); return v * MiB }
-			current = append(current, Device{Name: m[1], Endpoint: m[2], Total: mib(3), Model: mib(6), Context: mib(7), Compute: mib(8)})
-			s.Devices = current
+			s.Devices = append(s.Devices, Device{Name: m[1], Endpoint: m[2], Total: mib(3), Model: mib(6), Context: mib(7), Compute: mib(8)})
+			continue
+		}
+		if m := hostRow.FindStringSubmatch(line); m != nil && inTable {
+			mib := func(i int) int64 { v, _ := strconv.ParseInt(m[i], 10, 64); return v * MiB }
+			s.Host = append(s.Host, Device{Name: m[1], Model: mib(3), Context: mib(4), Compute: mib(5)})
 			continue
 		}
 		if inTable && !strings.Contains(line, "common_memory_breakdown_print") {
@@ -124,7 +139,7 @@ func Open(path string) (*Follower, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }() // opened for reading
 	st, err := file.Stat()
 	if err != nil {
 		return nil, err
@@ -177,7 +192,7 @@ func (f *Follower) Latest() Split {
 	if err != nil {
 		return f.split
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }() // opened for reading
 	st, err := file.Stat()
 	if err != nil {
 		return f.split
@@ -203,7 +218,7 @@ func (f *Follower) Latest() Split {
 		if !strings.HasSuffix(text, "\n") { // a table cut mid-line waits for the rest
 			return f.split
 		}
-		if n := Parse(text); len(n.Devices) > 0 {
+		if n := Parse(text); len(n.Devices)+len(n.Host) > 0 {
 			f.split = n
 			f.buf.Reset()
 		}
@@ -211,4 +226,35 @@ func (f *Follower) Latest() Split {
 		f.buf.Reset()
 	}
 	return f.split
+}
+
+// Journal reads a server's table from the systemd journal, where a service's stderr goes when it is not a
+// file. The table changes only at load, and a new load is a new process, so the journal is read at most
+// every 10 s.
+type Journal struct {
+	pid   int
+	read  time.Time
+	split Split
+}
+
+func OpenJournal(pid int) (*Journal, error) {
+	if _, err := exec.LookPath("journalctl"); err != nil {
+		return nil, err
+	}
+	return &Journal{pid: pid}, nil
+}
+
+func (j *Journal) Latest() Split {
+	if time.Since(j.read) < 10*time.Second {
+		return j.split
+	}
+	j.read = time.Now()
+	out, err := exec.Command("journalctl", "_PID="+strconv.Itoa(j.pid), "-o", "cat", "--no-pager").Output()
+	if err != nil {
+		return j.split
+	}
+	if n := Parse(string(out)); len(n.Devices)+len(n.Host) > 0 {
+		j.split = n
+	}
+	return j.split
 }

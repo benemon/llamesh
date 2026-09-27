@@ -1,0 +1,90 @@
+name: Release
+
+# Tag-triggered release, gated on the unit and end to end suites. Releases ship the llamesh binary, with
+# the page embedded, for Linux and macOS (GitHub attaches the source archives automatically).
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Unit tests
+        run: make test
+
+  e2e:
+    uses: ./.github/workflows/e2e.yml
+    permissions:
+      contents: read
+
+  release:
+    runs-on: ubuntu-latest
+    needs: [unit, e2e]
+    permissions:
+      contents: write
+      id-token: write       # keyless cosign signing + provenance
+      attestations: write   # build-provenance attestations
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Full history + tags so cyclonedx-gomod can derive the module
+          # version from the tag when generating the SBOM.
+          fetch-depth: 0
+      - name: Require the tag to be on main
+        run: git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      - name: Build the page
+        run: |
+          cd web && npm ci && cd ..
+          make web
+      - name: Build binaries
+        run: |
+          mkdir -p dist
+          for platform in linux/amd64 linux/arm64 darwin/arm64 darwin/amd64; do
+            GOOS=${platform%/*} GOARCH=${platform#*/} CGO_ENABLED=0 \
+              go build -trimpath -ldflags="-s -w -X main.version=${GITHUB_REF_NAME}" -o dist/llamesh ./cmd/llamesh
+            tar -czf "dist/llamesh_${GITHUB_REF_NAME}_${platform%/*}_${platform#*/}.tar.gz" -C dist llamesh
+            rm dist/llamesh
+          done
+      - name: Generate SBOM
+        run: |
+          go run github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@v1.11.0 \
+            app -json -licenses -main cmd/llamesh -output "dist/llamesh_${GITHUB_REF_NAME}.cdx.json" .
+      - name: Checksums
+        run: cd dist && sha256sum * > SHA256SUMS
+      # Keyless signature over SHA256SUMS, which covers every release artifact.
+      # Verify with:
+      #   cosign verify-blob --bundle SHA256SUMS.cosign.bundle \
+      #     --certificate-identity-regexp '^https://github.com/benemon/llamesh/\.github/workflows/release\.yml@' \
+      #     --certificate-oidc-issuer https://token.actions.githubusercontent.com SHA256SUMS
+      - name: Sign checksums
+        run: cosign sign-blob --yes --bundle dist/SHA256SUMS.cosign.bundle dist/SHA256SUMS
+      # Signed build provenance for the release binaries, stored in the
+      # repository's attestation store. Verify with:
+      #   gh attestation verify <artifact> -R benemon/llamesh
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4
+        with:
+          subject-path: dist/*.tar.gz
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* --generate-notes

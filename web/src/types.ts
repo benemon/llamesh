@@ -1,56 +1,10 @@
-export interface Slot {
-  processing: boolean;
-  n_prompt: number;
-  n_cached: number;
-  n_processed: number;
-  n_decoded?: number; // tokens generated so far in the request in flight
-}
+import type { Layers, Link, Model, Node, Slot } from "./pb/llamesh/v1/llamesh";
 
-export interface Node {
-  id: string;
-  kind: "llama-server" | "rpc";
-  device: string;
-  label: string;
-  mem_total: number;
-  mem_model: number;
-  mem_context: number;
-  mem_compute: number;
-  layers?: [number, number]; // derived from bytes: contiguous, in device order
-  tokens_per_s?: number;
-  prompt_tokens_per_s?: number;
-  requests_processing?: number;
-  slot?: Slot;
-  stale?: boolean;
-}
-
-export interface Link {
-  from: string;
-  to: string;
-  bytes_out_per_s: number;
-  bytes_in_per_s: number;
-  stale?: boolean;
-}
-
-export interface Model { name: string; n_ctx: number; build: string; structure: Structure }
-
-export interface Snapshot {
-  t: number;
-  source: string; // hostname of the collector's host
-  target: string; // the llama-server's port on that host
-  model: Model;
-  nodes: Node[];
-  links: Link[];
-  totals: { tokens_predicted: number; mem_held: number };
-}
-
-export interface Structure {
-  n_layer?: number;
-  n_expert?: number;
-  n_expert_used?: number;
-}
+export { Kind } from "./pb/llamesh/v1/llamesh";
+export type { Layers, Link, Model, Node, Slot, Snapshot, Structure } from "./pb/llamesh/v1/llamesh";
 
 // Layers a node holds, from its contiguous range; a node without a range is drawn as one layer.
-export const layerCount = (layers?: [number, number] | null) => layers ? layers[1] - layers[0] + 1 : 1;
+export const layerCount = (layers?: Layers | null) => layers ? layers.last - layers.first + 1 : 1;
 
 // What the page draws: every source's nodes in one space. Ids are namespaced by source so two hosts'
 // "local" nodes never collide; the address a node had in its own snapshot is kept for display.

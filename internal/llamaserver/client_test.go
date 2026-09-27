@@ -56,3 +56,13 @@ func TestParseSlotsDecoded(t *testing.T) {
 		t.Fatalf("got %+v, %v", s, err)
 	}
 }
+
+// A request placed in the fourth of four slots is the one read.
+func TestParseSlotsPicksTheBusySlot(t *testing.T) {
+	b := []byte(`[{"id":0,"is_processing":false,"n_prompt_tokens":0},{"id":1,"is_processing":false},
+		{"id":2,"is_processing":false},{"id":3,"is_processing":true,"n_prompt_tokens":9,"next_token":[{"n_decoded":40}]}]`)
+	s, err := ParseSlots(b)
+	if err != nil || !s.Processing || s.NPrompt != 9 || s.NDecoded != 40 {
+		t.Fatalf("got %+v %v", s, err)
+	}
+}

@@ -1,0 +1,114 @@
+syntax = "proto3";
+
+// The collector-to-server contract, and through the server's JSON rendering of it, the page's.
+package llamesh.v1;
+
+option go_package = "github.com/benemon/llamesh/internal/pb/llamesh/v1;llameshv1";
+
+// Collectors dial the server and hold one Report stream open: a Hello, then a Snapshot per server per poll.
+// The server sends nothing back; the stream is bidirectional so a collector with nothing to send still
+// learns, from its receive side, that the server ended the stream or refused it.
+service IngestService {
+  rpc Report(stream ReportRequest) returns (stream ReportResponse);
+}
+
+message ReportRequest {
+  oneof body {
+    Hello hello = 1;
+    Snapshot snapshot = 2;
+    Gone gone = 3;
+  }
+}
+
+// A llama-server the collector was reporting has exited. The server stops replaying its picture to newly
+// opened pages at once; pages already open show it stale and drop it as they do any quiet picture.
+message Gone {
+  string target = 1;
+}
+
+message ReportResponse {}
+
+// Who is reporting. The server names an RPC node after the collector whose addresses include the node's.
+message Hello {
+  string host = 1;
+  repeated string addresses = 2;
+  string version = 3; // the collector's build, from git describe
+}
+
+// Byte counts and rates are doubles: the page reads the server's JSON, and protobuf renders 64-bit
+// integers as strings there.
+message Snapshot {
+  double t = 1;
+  string source = 2; // hostname of the collector's host
+  string target = 3; // the llama-server's port; with source, the page's key for this picture
+  Model model = 4;
+  repeated Node nodes = 5;
+  repeated Link links = 6;
+  Totals totals = 7;
+}
+
+message Model {
+  string path = 1;
+  string name = 2;
+  int32 n_ctx = 3;
+  string build = 4;
+  Structure structure = 5;
+}
+
+message Structure {
+  int32 n_layer = 1;
+  int32 n_expert = 2;
+  int32 n_expert_used = 3;
+}
+
+enum Kind {
+  KIND_UNSPECIFIED = 0;
+  KIND_LLAMA_SERVER = 1; // the server, drawn as its first local device
+  KIND_RPC = 2;
+  KIND_DEVICE = 3; // a further local device of the same server, such as a second GPU
+}
+
+message Node {
+  string id = 1;
+  Kind kind = 2;
+  string device = 3;
+  string label = 4;
+  double mem_total = 5;
+  double mem_model = 6;
+  double mem_context = 7;
+  double mem_compute = 8;
+  Layers layers = 9; // derived from bytes; see loadlog.LayerRanges
+  optional double tokens_per_s = 10;
+  optional double prompt_tokens_per_s = 11;
+  optional int32 requests_processing = 12;
+  Slot slot = 13;
+  bool stale = 14;
+}
+
+// The contiguous range of layers a device holds, first and last inclusive, numbered from 0.
+message Layers {
+  int32 first = 1;
+  int32 last = 2;
+}
+
+message Slot {
+  bool processing = 1;
+  int32 n_prompt = 2;
+  int32 n_cached = 3;
+  int32 n_processed = 4;
+  int32 n_decoded = 5; // tokens generated so far in the request in flight
+}
+
+message Link {
+  string from = 1;
+  string to = 2;
+  string iface = 3;
+  double bytes_out_per_s = 4;
+  double bytes_in_per_s = 5;
+  bool stale = 6;
+}
+
+message Totals {
+  double tokens_predicted = 1;
+  double mem_held = 2;
+}

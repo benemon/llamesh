@@ -1,4 +1,4 @@
-// Package snapshot assembles what the page draws: nodes, links and totals, with rates computed from
+// Package snapshot assembles one llama-server's picture: nodes, links and totals, with rates computed from
 // counter deltas between polls.
 package snapshot
 
@@ -13,63 +13,16 @@ import (
 	"github.com/benemon/llamesh/internal/link"
 	"github.com/benemon/llamesh/internal/llamaserver"
 	"github.com/benemon/llamesh/internal/loadlog"
+	pb "github.com/benemon/llamesh/internal/pb/llamesh/v1"
 )
-
-type Model struct {
-	Path      string            `json:"path"`
-	Name      string            `json:"name"`
-	NCtx      int               `json:"n_ctx"`
-	Build     string            `json:"build"`
-	Structure loadlog.Structure `json:"structure"`
-}
-
-type Node struct {
-	ID                 string            `json:"id"`
-	Kind               string            `json:"kind"`
-	Device             string            `json:"device"`
-	Label              string            `json:"label"`
-	MemTotal           int64             `json:"mem_total"`
-	MemModel           int64             `json:"mem_model"`
-	MemContext         int64             `json:"mem_context"`
-	MemCompute         int64             `json:"mem_compute"`
-	Layers             *[2]int           `json:"layers,omitempty"` // derived from bytes; see loadlog.LayerRanges
-	TokensPerS         *float64          `json:"tokens_per_s,omitempty"`
-	PromptTokensPerS   *float64          `json:"prompt_tokens_per_s,omitempty"`
-	RequestsProcessing *int              `json:"requests_processing,omitempty"`
-	Slot               *llamaserver.Slot `json:"slot,omitempty"`
-	Stale              bool              `json:"stale,omitempty"`
-}
-
-type Link struct {
-	From         string  `json:"from"`
-	To           string  `json:"to"`
-	Iface        string  `json:"iface"`
-	BytesOutPerS float64 `json:"bytes_out_per_s"`
-	BytesInPerS  float64 `json:"bytes_in_per_s"`
-	Stale        bool    `json:"stale,omitempty"`
-}
-
-type Totals struct {
-	TokensPredicted float64 `json:"tokens_predicted"`
-	MemHeld         int64   `json:"mem_held"`
-}
-
-type Snapshot struct {
-	T      float64 `json:"t"`
-	Source string  `json:"source"` // hostname of the collector's host
-	Target string  `json:"target"` // the llama-server's port; with Source, the page's key for this picture
-	Model  Model   `json:"model"`
-	Nodes  []Node  `json:"nodes"`
-	Links  []Link  `json:"links"`
-	Totals Totals  `json:"totals"`
-}
 
 // Collector holds the discovered target and the previous poll's counters.
 type Collector struct {
 	Client   *llamaserver.Client
 	Args     discover.Args
-	Log      *loadlog.Follower
+	Log      loadlog.Source
 	Local    string            // hostname of the machine running llama-server
+	HostMem  int64             // the machine's RAM: the total of a server on the CPU alone
 	Names    map[string]string // RPC node IP -> discovered hostname
 	Ifaces   map[string]string // RPC node address -> interface
 	props    llamaserver.Props
@@ -77,135 +30,199 @@ type Collector struct {
 	lastM    map[string]float64
 	lastSlot llamaserver.Slot
 	lastLink map[string]link.Counters
-	last     *Snapshot
+	last     *pb.Snapshot
 }
 
 // Poll reads the live sources once and returns the snapshot. A source that fails keeps its previous
 // values and marks what it feeds as stale.
-func (c *Collector) Poll() Snapshot {
+func (c *Collector) Poll() *pb.Snapshot {
 	// /props answers 503 while the model loads; keep asking until it answers.
 	if c.props.NCtx == 0 {
 		if p, err := c.Client.Props(); err == nil {
 			c.props = p
 		}
 	}
-	metrics, merr := c.Client.Metrics()
-	slot, serr := c.Client.Slot()
+	metrics, merr := c.Client.Metrics() // served only when llama-server runs with --metrics
+	var slot *llamaserver.Slot
+	if sl, err := c.Client.Slot(); err == nil {
+		slot = &sl
+	}
 	counters := map[string]link.Counters{}
 	for addr, iface := range c.Ifaces {
 		if cnt, err := link.Read(iface); err == nil {
 			counters[addr] = cnt
 		}
 	}
-	s := c.build(metrics, slot, merr != nil || serr != nil, counters)
-	c.last = &s
+	s := c.build(metrics, slot, merr != nil && slot == nil, counters)
+	c.last = s
 	return s
 }
 
-func (c *Collector) build(metrics map[string]float64, slot llamaserver.Slot, serverStale bool, counters map[string]link.Counters) Snapshot {
+func (c *Collector) build(metrics map[string]float64, slot *llamaserver.Slot, serverStale bool,
+	counters map[string]link.Counters) *pb.Snapshot {
 	now := time.Now()
 	dt := now.Sub(c.lastT).Seconds()
 	split := loadlog.Split{}
 	if c.Log != nil {
 		split = c.Log.Latest()
 	}
-	// RPC devices by endpoint: llama.cpp numbers them by the nodes that registered, so a node that was
-	// skipped shifts the numbering.
-	byDev := map[string]loadlog.Device{}
+	// The table lists devices in llama.cpp's order, the order layers are assigned in. RPC devices are
+	// matched by endpoint, since llama.cpp numbers them by the nodes that registered and a skipped node
+	// shifts the numbering. A server on the CPU alone has no device rows, only host-memory rows.
+	ordered := append([]loadlog.Device{}, split.Devices...)
+	var locals []loadlog.Device
 	byEndpoint := map[string]loadlog.Device{}
-	for _, d := range split.Devices {
-		byDev[d.Name] = d
+	for _, d := range ordered {
 		if strings.HasPrefix(d.Name, "RPC") {
 			byEndpoint[d.Endpoint] = d
+		} else {
+			locals = append(locals, d)
 		}
 	}
-	s := Snapshot{T: float64(now.UnixNano()) / 1e9, Source: c.Local, Nodes: []Node{}, Links: []Link{}} // lists never null: the page iterates both
-	s.Model = Model{Path: c.props.ModelPath, Name: strings.TrimSuffix(filepath.Base(c.props.ModelPath), ".gguf"), NCtx: c.props.NCtx, Build: c.props.Build, Structure: split.Info}
-	ordered := []loadlog.Device{}
-	if d, ok := byDev["MTL0"]; ok {
-		ordered = append(ordered, d)
-	}
-	for _, addr := range c.Args.RPC {
-		if d, ok := byEndpoint[addr]; ok {
-			ordered = append(ordered, d)
+	if len(locals) == 0 && len(split.Host) > 0 {
+		cpu := loadlog.Device{Name: "CPU", Total: c.HostMem}
+		for _, h := range split.Host {
+			cpu.Model, cpu.Context, cpu.Compute = cpu.Model+h.Model, cpu.Context+h.Context, cpu.Compute+h.Compute
 		}
+		ordered = append(ordered, cpu)
+		locals = []loadlog.Device{cpu}
 	}
-	layersOf := map[string]*[2]int{}
+	s := &pb.Snapshot{
+		T:      float64(now.UnixNano()) / 1e9,
+		Source: c.Local,
+		Model: &pb.Model{
+			Path:  c.props.ModelPath,
+			Name:  strings.TrimSuffix(filepath.Base(c.props.ModelPath), ".gguf"),
+			NCtx:  int32(c.props.NCtx),
+			Build: c.props.Build,
+			Structure: &pb.Structure{
+				NLayer:      int32(split.Info.NLayer),
+				NExpert:     int32(split.Info.NExpert),
+				NExpertUsed: int32(split.Info.NExpertUse),
+			},
+		},
+		Totals: &pb.Totals{},
+	}
+	layersOf := map[string]*pb.Layers{}
 	for i, r := range loadlog.LayerRanges(ordered, split.Info.NLayer) {
-		rr := r
-		layersOf[ordered[i].Name] = &rr
+		layersOf[ordered[i].Name] = &pb.Layers{First: int32(r[0]), Last: int32(r[1])}
+	}
+	memOf := func(n *pb.Node, d loadlog.Device) {
+		n.MemTotal, n.MemModel, n.MemContext, n.MemCompute = float64(d.Total), float64(d.Model), float64(d.Context), float64(d.Compute)
+		n.Layers = layersOf[d.Name]
 	}
 
-	local := Node{ID: "local", Kind: "llama-server", Device: "MTL0", Label: c.Local}
-	if d, ok := byDev["MTL0"]; ok {
-		local.MemTotal, local.MemModel, local.MemContext, local.MemCompute = d.Total, d.Model, d.Context, d.Compute
-		local.Layers = layersOf["MTL0"]
-		if local.Label == "" {
-			local.Label = d.Endpoint
+	local := &pb.Node{Id: "local", Kind: pb.Kind_KIND_LLAMA_SERVER, Label: c.Local}
+	if len(locals) > 0 {
+		local.Device = locals[0].Name
+		memOf(local, locals[0])
+	}
+	c.rates(local, s, metrics, slot, dt)
+	local.Stale = serverStale
+	s.Nodes = append(s.Nodes, local)
+	s.Totals.MemHeld = local.MemModel + local.MemContext + local.MemCompute
+	for _, d := range locals[min(1, len(locals)):] {
+		n := &pb.Node{Id: "local/" + d.Name, Kind: pb.Kind_KIND_DEVICE, Device: d.Name, Label: c.Local, Stale: serverStale}
+		memOf(n, d)
+		s.Nodes = append(s.Nodes, n)
+		s.Totals.MemHeld += n.MemModel + n.MemContext + n.MemCompute
+	}
+
+	c.rpcNodes(s, byEndpoint, memOf, counters, dt)
+	if metrics != nil {
+		c.lastM = metrics
+	}
+	if counters != nil {
+		if c.lastLink == nil {
+			c.lastLink = map[string]link.Counters{}
+		}
+		for k, v := range counters {
+			c.lastLink[k] = v
 		}
 	}
+	c.lastT = now
+	return s
+}
+
+// rates fills the server node's live figures. The metrics give counter rates, requests in flight and
+// tokens generated; the slot gives the request in flight and its live rates. Either may be missing (a
+// server without --metrics has no metrics); with neither, the last poll's figures carry forward.
+func (c *Collector) rates(local *pb.Node, s *pb.Snapshot, metrics map[string]float64, slot *llamaserver.Slot, dt float64) {
+	if metrics == nil && slot == nil {
+		if c.last != nil {
+			for _, n := range c.last.Nodes {
+				if n.Id == "local" {
+					local.TokensPerS, local.PromptTokensPerS = n.TokensPerS, n.PromptTokensPerS
+					local.RequestsProcessing, local.Slot = n.RequestsProcessing, n.Slot
+				}
+			}
+			s.Totals.TokensPredicted = c.last.Totals.TokensPredicted
+		}
+		return
+	}
+	zero := 0.0
+	local.TokensPerS, local.PromptTokensPerS = &zero, &zero
 	if metrics != nil {
 		rate := func(name string) *float64 {
 			v := 0.0
 			if c.lastM != nil && dt > 0 {
-				v = (metrics[name] - c.lastM[name]) / dt
-				if v < 0 {
-					v = 0
-				}
+				v = max(0, (metrics[name]-c.lastM[name])/dt)
 			}
 			return &v
 		}
 		local.TokensPerS = rate("llamacpp:tokens_predicted_total")
 		local.PromptTokensPerS = rate("llamacpp:prompt_tokens_total")
-		// llamacpp's counters advance when a request completes; while one is in flight the slot's own
-		// progress is the live rate, with a reset (a new request) read as that request's first tokens.
-		if slot.Processing && dt > 0 {
-			live := func(now, prev int) float64 {
-				if now < prev {
-					prev = 0
-				}
-				return float64(now-prev) / dt
-			}
-			g := live(slot.NDecoded, c.lastSlot.NDecoded)
-			p := live(slot.NProcessed, c.lastSlot.NProcessed)
-			if g > 0 || *local.TokensPerS == 0 {
-				local.TokensPerS = &g
-			}
-			if p > 0 || *local.PromptTokensPerS == 0 {
-				local.PromptTokensPerS = &p
-			}
-		} else if c.lastSlot.Processing {
-			// The request just finished: its tokens were counted live as it ran, and the counters now jump
-			// by the whole request at once, which would read as a burst.
-			zero := 0.0
-			local.TokensPerS, local.PromptTokensPerS = &zero, &zero
-		}
-		c.lastSlot = slot
-		rp := int(metrics["llamacpp:requests_processing"])
+		rp := int32(metrics["llamacpp:requests_processing"])
 		local.RequestsProcessing = &rp
-		sl := slot
-		local.Slot = &sl
 		s.Totals.TokensPredicted = metrics["llamacpp:tokens_predicted_total"]
-	} else if c.last != nil {
-		for _, n := range c.last.Nodes {
-			if n.ID == "local" {
-				local.TokensPerS, local.PromptTokensPerS, local.RequestsProcessing, local.Slot = n.TokensPerS, n.PromptTokensPerS, n.RequestsProcessing, n.Slot
-			}
-		}
-		s.Totals = c.last.Totals
 	}
-	local.Stale = serverStale
-	s.Nodes = append(s.Nodes, local)
-	s.Totals.MemHeld = local.MemModel + local.MemContext + local.MemCompute
+	if slot == nil {
+		return
+	}
+	// llamacpp's counters advance when a request completes; while one is in flight the slot's own
+	// progress is the live rate, with a reset (a new request) read as that request's first tokens.
+	if slot.Processing && dt > 0 {
+		live := func(now, prev int) float64 {
+			if now < prev {
+				prev = 0
+			}
+			return float64(now-prev) / dt
+		}
+		g := live(slot.NDecoded, c.lastSlot.NDecoded)
+		p := live(slot.NProcessed, c.lastSlot.NProcessed)
+		if g > 0 || *local.TokensPerS == 0 {
+			local.TokensPerS = &g
+		}
+		if p > 0 || *local.PromptTokensPerS == 0 {
+			local.PromptTokensPerS = &p
+		}
+	} else if c.lastSlot.Processing {
+		// The request just finished: its tokens were counted live as it ran, and the counters now jump
+		// by the whole request at once, which would read as a burst.
+		local.TokensPerS, local.PromptTokensPerS = &zero, &zero
+	}
+	if metrics == nil {
+		rp := int32(0)
+		if slot.Processing {
+			rp = 1
+		}
+		local.RequestsProcessing = &rp
+	}
+	c.lastSlot = *slot
+	local.Slot = &pb.Slot{Processing: slot.Processing, NPrompt: int32(slot.NPrompt), NCached: int32(slot.NCached),
+		NProcessed: int32(slot.NProcessed), NDecoded: int32(slot.NDecoded)}
+}
 
+// rpcNodes adds a node and a link per RPC address on the command line, in that order.
+func (c *Collector) rpcNodes(s *pb.Snapshot, byEndpoint map[string]loadlog.Device, memOf func(*pb.Node, loadlog.Device),
+	counters map[string]link.Counters, dt float64) {
 	for i, addr := range c.Args.RPC {
 		dev := "RPC" + strconv.Itoa(i)
-		n := Node{ID: addr, Kind: "rpc", Device: dev, Label: dev}
+		n := &pb.Node{Id: addr, Kind: pb.Kind_KIND_RPC, Device: dev, Label: dev}
 		if d, ok := byEndpoint[addr]; ok {
 			dev = d.Name
 			n.Device = dev
-			n.MemTotal, n.MemModel, n.MemContext, n.MemCompute = d.Total, d.Model, d.Context, d.Compute
-			n.Layers = layersOf[dev]
+			memOf(n, d)
 		} else {
 			n.Stale = true // listed on the command line, absent from the load: the server skipped it
 		}
@@ -216,7 +233,7 @@ func (c *Collector) build(metrics map[string]float64, slot llamaserver.Slot, ser
 		}
 		s.Nodes = append(s.Nodes, n)
 		s.Totals.MemHeld += n.MemModel + n.MemContext + n.MemCompute
-		l := Link{From: "local", To: addr, Iface: c.Ifaces[addr]}
+		l := &pb.Link{From: "local", To: addr, Iface: c.Ifaces[addr]}
 		cnt, ok := counters[addr]
 		if prev, had := c.lastLink[addr]; ok && had && dt > 0 {
 			l.BytesOutPerS = float64(cnt.Out-prev.Out) / dt
@@ -233,17 +250,4 @@ func (c *Collector) build(metrics map[string]float64, slot llamaserver.Slot, ser
 		}
 		s.Links = append(s.Links, l)
 	}
-	if metrics != nil {
-		c.lastM = metrics
-	}
-	if counters != nil {
-		if c.lastLink == nil {
-			c.lastLink = map[string]link.Counters{}
-		}
-		for k, v := range counters {
-			c.lastLink[k] = v
-		}
-	}
-	c.lastT = now
-	return s
 }

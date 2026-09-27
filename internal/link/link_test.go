@@ -26,3 +26,16 @@ func TestParseNetstat(t *testing.T) {
 		t.Fatal("missing interface must error")
 	}
 }
+
+// Recorded on an Ubuntu runner by the end to end suite.
+func TestParseLinux(t *testing.T) {
+	route, _ := os.ReadFile("../../testdata/ip-route-get.txt")
+	if iface, err := parseIPRoute(string(route)); err != nil || iface != "lo" {
+		t.Fatalf("ip route: %q %v", iface, err)
+	}
+	dev, _ := os.ReadFile("../../testdata/proc-net-dev.txt")
+	c, err := parseProcNetDev(string(dev), "eth0")
+	if err != nil || c.In != 182159543 || c.Out != 1850523 {
+		t.Fatalf("/proc/net/dev: %+v %v", c, err)
+	}
+}

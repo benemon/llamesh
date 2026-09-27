@@ -33,7 +33,7 @@ func (c *Client) get(path string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != 200 {
 		return nil, fmt.Errorf("%s: %s", path, resp.Status)
 	}
@@ -116,7 +116,8 @@ func (c *Client) Slot() (Slot, error) {
 	return ParseSlots(b)
 }
 
-// ParseSlots reads the first slot; the collector serves single-slot servers.
+// ParseSlots reads the slot with a request in flight, the lowest-numbered when several are, or the first
+// when none is: llama-server runs several slots by default and places a request in any of them.
 func ParseSlots(b []byte) (Slot, error) {
 	var raw []struct {
 		Processing bool            `json:"is_processing"`
@@ -132,6 +133,12 @@ func ParseSlots(b []byte) (Slot, error) {
 		return Slot{}, fmt.Errorf("no slots")
 	}
 	s := raw[0]
+	for _, r := range raw {
+		if r.Processing {
+			s = r
+			break
+		}
+	}
 	slot := Slot{Processing: s.Processing, NPrompt: s.NPrompt, NCached: s.NCached, NProcessed: s.NProcessed}
 	type nt struct {
 		NDecoded int `json:"n_decoded"`

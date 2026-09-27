@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import { layerCount, type Link, type View, type ViewNode } from "./types";
+import { Kind, layerCount, type Layers, type Link, type View, type ViewNode } from "./types";
 
 const PARTICLE_BYTES = 4 * 1048576; // one grain per 4 MiB held
 // Sizes are volumetric so bodies compare honestly: a 64 GiB body has radius 170, and two 32 GiB blobs
@@ -59,7 +59,7 @@ class Blob {
   dim = 1;        // 1 lit, towards 0 faded: another source is being explored
   private dimShown = 1;
   private coreCap = 20;   // radius of the context core when the window is full: volume ~ the node's context bytes
-  layers: [number, number] | null = null;
+  layers: Layers | null = null;
   activity = 0;
   ctxFill = 0;
   camDist = 1e9; // camera distance to this node's centre, set by the scene each frame
@@ -435,7 +435,8 @@ export class Scene {
   }
 
   private activityOf(n: ViewNode, links: Link[]): number {
-    if (n.kind === "llama-server") return (n.requests_processing ?? 0) > 0 || (n.tokens_per_s ?? 0) > 0 ? 1 : 0;
+    if (n.kind === Kind.KIND_LLAMA_SERVER) return (n.requests_processing ?? 0) > 0 || (n.tokens_per_s ?? 0) > 0 ? 1 : 0;
+    if (n.kind === Kind.KIND_DEVICE) return n.server_slot?.processing ? 1 : 0; // busy when its server is
     const flow = links.filter((l) => l.to === n.id).reduce((a, l) => a + l.bytes_out_per_s + l.bytes_in_per_s, 0);
     return Math.min(1, flow / 5e5);
   }
@@ -449,7 +450,7 @@ export class Scene {
       if (d < R * 0.24) return { id: b.id, layer: null, core: true };
       const count = layerCount(b.layers);
       const idx = Math.min(count - 1, Math.floor((d - R * 0.24) / ((R * 0.76) / count)));
-      return { id: b.id, layer: (b.layers ? b.layers[0] : 0) + idx, core: false };
+      return { id: b.id, layer: (b.layers ? b.layers.first : 0) + idx, core: false };
     }
     return null;
   }

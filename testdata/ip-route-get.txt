@@ -1,0 +1,2 @@
+local 127.0.0.1 dev lo src 127.0.0.1 uid 1001 
+    cache <local> 
