@@ -109,7 +109,7 @@ func collect(server string, useTLS bool, token string, tokenTLS bool, poll time.
 // report holds one stream open to the server, reconnecting with backoff, and sends a Hello at the start
 // of each stream so the server knows the host and its addresses.
 func report(server string, useTLS bool, token string, tokenTLS bool, local string, in chan *pb.ReportRequest) {
-	var creds credentials.TransportCredentials = insecure.NewCredentials()
+	creds := insecure.NewCredentials()
 	if tokenTLS {
 		creds = tokenTLSClientCredentials(token)
 	} else if useTLS {

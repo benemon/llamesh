@@ -76,39 +76,8 @@ func (c *tokenCredentials) ClientHandshake(ctx context.Context, authority string
 	if err != nil {
 		return nil, nil, err
 	}
-	tlsInfo, ok := info.(credentials.TLSInfo)
-	if !ok || tlsInfo.State.Version != tls.VersionTLS13 {
-		conn.Close()
-		return nil, nil, errors.New("token binding requires TLS 1.3")
-	}
-	ekm, err := tlsInfo.State.ExportKeyingMaterial(tokenBindingLabel, nil, 32)
-	if err != nil {
-		conn.Close()
-		return nil, nil, fmt.Errorf("export token binding: %w", err)
-	}
-	if err := conn.SetDeadline(time.Now().Add(10 * time.Second)); err != nil {
-		conn.Close()
-		return nil, nil, err
-	}
-	clientProof := tokenProof(c.token, "llamesh client", ekm)
-	if n, err := conn.Write(clientProof); err != nil {
-		conn.Close()
-		return nil, nil, fmt.Errorf("write client token proof: %w", err)
-	} else if n != len(clientProof) {
-		conn.Close()
-		return nil, nil, io.ErrShortWrite
-	}
-	serverProof := make([]byte, sha256.Size)
-	if _, err := io.ReadFull(conn, serverProof); err != nil {
-		conn.Close()
-		return nil, nil, fmt.Errorf("read server token proof: %w", err)
-	}
-	if !hmac.Equal(serverProof, tokenProof(c.token, "llamesh server", ekm)) {
-		conn.Close()
-		return nil, nil, errors.New("bad server token proof")
-	}
-	if err := conn.SetDeadline(time.Time{}); err != nil {
-		conn.Close()
+	if err := c.prove(conn, info, true); err != nil {
+		_ = conn.Close()
 		return nil, nil, err
 	}
 	return conn, info, nil
@@ -119,43 +88,47 @@ func (c *tokenCredentials) ServerHandshake(raw net.Conn) (net.Conn, credentials.
 	if err != nil {
 		return nil, nil, err
 	}
-	tlsInfo, ok := info.(credentials.TLSInfo)
-	if !ok || tlsInfo.State.Version != tls.VersionTLS13 {
-		conn.Close()
-		return nil, nil, errors.New("token binding requires TLS 1.3")
-	}
-	ekm, err := tlsInfo.State.ExportKeyingMaterial(tokenBindingLabel, nil, 32)
-	if err != nil {
-		conn.Close()
-		return nil, nil, fmt.Errorf("export token binding: %w", err)
-	}
-	if err := conn.SetDeadline(time.Now().Add(10 * time.Second)); err != nil {
-		conn.Close()
-		return nil, nil, err
-	}
-	// The client proves first, so a host that only connects is sent nothing to guess the token from.
-	clientProof := make([]byte, sha256.Size)
-	if _, err := io.ReadFull(conn, clientProof); err != nil {
-		conn.Close()
-		return nil, nil, fmt.Errorf("read client token proof: %w", err)
-	}
-	if !hmac.Equal(clientProof, tokenProof(c.token, "llamesh client", ekm)) {
-		conn.Close()
-		return nil, nil, errors.New("bad client token proof")
-	}
-	serverProof := tokenProof(c.token, "llamesh server", ekm)
-	if n, err := conn.Write(serverProof); err != nil {
-		conn.Close()
-		return nil, nil, fmt.Errorf("write server token proof: %w", err)
-	} else if n != len(serverProof) {
-		conn.Close()
-		return nil, nil, io.ErrShortWrite
-	}
-	if err := conn.SetDeadline(time.Time{}); err != nil {
-		conn.Close()
+	if err := c.prove(conn, info, false); err != nil {
+		_ = conn.Close()
 		return nil, nil, err
 	}
 	return conn, info, nil
+}
+
+// prove exchanges token proofs bound to the TLS session. The client proves first, so a host that only
+// connects is sent nothing to guess the token from.
+func (c *tokenCredentials) prove(conn net.Conn, info credentials.AuthInfo, client bool) error {
+	tlsInfo, ok := info.(credentials.TLSInfo)
+	if !ok || tlsInfo.State.Version != tls.VersionTLS13 {
+		return errors.New("token binding requires TLS 1.3")
+	}
+	ekm, err := tlsInfo.State.ExportKeyingMaterial(tokenBindingLabel, nil, 32)
+	if err != nil {
+		return fmt.Errorf("export token binding: %w", err)
+	}
+	if err := conn.SetDeadline(time.Now().Add(10 * time.Second)); err != nil {
+		return err
+	}
+	mine, theirs, peer := tokenProof(c.token, "llamesh server", ekm), tokenProof(c.token, "llamesh client", ekm), "client"
+	if client {
+		mine, theirs, peer = theirs, mine, "server"
+		if _, err := conn.Write(mine); err != nil {
+			return fmt.Errorf("write client token proof: %w", err)
+		}
+	}
+	got := make([]byte, sha256.Size)
+	if _, err := io.ReadFull(conn, got); err != nil {
+		return fmt.Errorf("read %s token proof: %w", peer, err)
+	}
+	if !hmac.Equal(got, theirs) {
+		return fmt.Errorf("bad %s token proof", peer)
+	}
+	if !client {
+		if _, err := conn.Write(mine); err != nil {
+			return fmt.Errorf("write server token proof: %w", err)
+		}
+	}
+	return conn.SetDeadline(time.Time{})
 }
 
 func tokenProof(token, direction string, ekm []byte) []byte {
@@ -173,6 +146,7 @@ func (c *tokenCredentials) Clone() credentials.TransportCredentials {
 	return &tokenCredentials{inner: c.inner.Clone(), token: c.token}
 }
 
-func (c *tokenCredentials) OverrideServerName(name string) error {
-	return c.inner.OverrideServerName(name)
+// OverrideServerName is required by the interface but unused by gRPC, and the name is not checked here.
+func (c *tokenCredentials) OverrideServerName(string) error {
+	return nil
 }
