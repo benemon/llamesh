@@ -18,11 +18,16 @@
     # The host whose server this host's services use: its token, and its TLS settings.
     _llamesh_server_name: "{{ llamesh_server_host if llamesh_collector | length > 0 else inventory_hostname }}"
 
-- name: Use TLS when the server has both a certificate and a key
+# Play variables and role parameters are not in hostvars, so the server's host publishes its choice as a
+# fact for its collectors to read.
+- name: Serve TLS when the server has both a certificate and a key
   ansible.builtin.set_fact:
-    _llamesh_tls: "{{ (_llamesh_peer.llamesh_tls_cert | default('') | length > 0) and (_llamesh_peer.llamesh_tls_key | default('') | length > 0) }}"
-  vars:
-    _llamesh_peer: "{{ hostvars[_llamesh_server_name] }}"
+    _llamesh_server_tls: "{{ llamesh_tls_cert | length > 0 and llamesh_tls_key | length > 0 }}"
+  when: llamesh_server
+
+- name: Follow the server's choice of TLS
+  ansible.builtin.set_fact:
+    _llamesh_tls: "{{ hostvars[_llamesh_server_name]._llamesh_server_tls }}"
 
 - name: Install the release
   ansible.builtin.import_tasks: install.yml
