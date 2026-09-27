@@ -1,0 +1,15 @@
+namespace: benemon
+name: llamesh
+version: 0.1.0
+readme: README.md
+authors:
+  - Benjamin Holmes
+description: Installs llamesh collectors and a server from the project's signed GitHub releases.
+license:
+  - Apache-2.0
+tags: [llamacpp, observability, monitoring]
+repository: https://github.com/benemon/llamesh
+issues: https://github.com/benemon/llamesh/issues
+build_ignore:
+  - examples
+  - tests

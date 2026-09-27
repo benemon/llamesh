@@ -1,0 +1,7 @@
+# ansible-galaxy collection install git+https://github.com/benemon/llamesh.git#/ansible
+# ansible-playbook -i inventory.yml site.yml
+---
+- name: Run llamesh
+  hosts: all
+  roles:
+    - benemon.llamesh.llamesh

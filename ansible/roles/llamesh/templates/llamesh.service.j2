@@ -1,0 +1,24 @@
+# {{ ansible_managed }}
+[Unit]
+Description=llamesh {{ _llamesh_mode }}
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+EnvironmentFile=/etc/llamesh/{{ _llamesh_mode }}.env
+{% if _llamesh_mode == 'server' %}
+ExecStart={{ _llamesh_bin }} -server -listen {{ llamesh_listen }} -ingest {{ llamesh_ingest }}
+DynamicUser=yes
+{% else %}
+ExecStart={{ _llamesh_bin }} -collector {{ llamesh_collector }} -poll {{ llamesh_poll }}
+# It reads the llama-servers' logs, /proc entries and journal.
+User={{ llamesh_collector_user }}
+{% if llamesh_collector_user != 'root' %}
+SupplementaryGroups=systemd-journal
+{% endif %}
+{% endif %}
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

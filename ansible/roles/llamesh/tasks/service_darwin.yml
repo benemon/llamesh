@@ -1,0 +1,35 @@
+# roles/llamesh/tasks/service_darwin.yml
+#
+# A user LaunchAgent per mode, managed with launchctl directly. A collector reaching another host needs
+# macOS's Local Network permission for the binary, granted once in System Settings.
+---
+- name: Set the agent's names for {{ _llamesh_mode }}
+  ansible.builtin.set_fact:
+    _llamesh_label: "io.github.benemon.llamesh.{{ _llamesh_mode }}"
+    _llamesh_domain: "gui/{{ ansible_facts.user_uid }}"
+    _llamesh_plist: "{{ ansible_facts.user_dir }}/Library/LaunchAgents/io.github.benemon.llamesh.{{ _llamesh_mode }}.plist"
+
+- name: Write the LaunchAgent for {{ _llamesh_mode }}
+  ansible.builtin.template:
+    src: launchd.plist.j2
+    dest: "{{ _llamesh_plist }}"
+    mode: "0600" # it carries the token
+  register: _llamesh_agent
+  no_log: true
+
+- name: Check whether the agent is loaded for {{ _llamesh_mode }}
+  ansible.builtin.command: launchctl print {{ _llamesh_domain }}/{{ _llamesh_label }}
+  register: _llamesh_loaded
+  changed_when: false
+  failed_when: false
+
+- name: Unload the agent to pick up a new binary or definition for {{ _llamesh_mode }}
+  ansible.builtin.command: launchctl bootout {{ _llamesh_domain }}/{{ _llamesh_label }}
+  when: _llamesh_loaded.rc == 0 and (_llamesh_agent.changed or _llamesh_binary.changed)
+  register: _llamesh_unloaded
+  changed_when: true
+
+- name: Load the agent for {{ _llamesh_mode }}
+  ansible.builtin.command: launchctl bootstrap {{ _llamesh_domain }} {{ _llamesh_plist }}
+  when: _llamesh_loaded.rc != 0 or _llamesh_unloaded is changed
+  changed_when: true

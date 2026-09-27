@@ -20,3 +20,11 @@ updates:
       web:
         patterns:
           - "*"
+  - package-ecosystem: pip
+    directory: "/ansible/tests"
+    schedule:
+      interval: weekly
+    groups:
+      ansible:
+        patterns:
+          - "*"

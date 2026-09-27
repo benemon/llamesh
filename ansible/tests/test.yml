@@ -1,0 +1,13 @@
+# The CI role test: a server and a collector on the runner, from a signed release.
+---
+- name: Run llamesh on this host
+  hosts: localhost
+  connection: local
+  vars:
+    llamesh_version: v0.1.0
+    llamesh_verify_signature: true
+    llamesh_server: true
+    llamesh_collector: 127.0.0.1:8900
+    llamesh_server_host: localhost
+  roles:
+    - benemon.llamesh.llamesh

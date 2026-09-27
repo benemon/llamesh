@@ -1,0 +1,22 @@
+# roles/llamesh/defaults/main.yml
+---
+# A release tag, or latest. Pin it in inventory so a new release reaches hosts only when chosen.
+llamesh_version: latest
+llamesh_repo: benemon/llamesh
+# Where the control node keeps downloaded releases.
+llamesh_cache_dir: "{{ lookup('env', 'HOME') }}/.cache/llamesh"
+# Verify the release's cosign signature on the control node; needs cosign there.
+llamesh_verify_signature: false
+
+# This host serves the page and accepts collectors.
+llamesh_server: false
+llamesh_listen: 127.0.0.1:8899
+llamesh_ingest: ":8900"
+# This host runs a collector reporting to the server at this host:port. llamesh_server_host is that
+# server's inventory name, whose token the collector reads.
+llamesh_collector: ""
+llamesh_server_host: ""
+llamesh_poll: 1s
+# Linux only: the user the collector runs as. It reads the llama-servers' logs, /proc entries and
+# journal, so it is their user or root.
+llamesh_collector_user: root

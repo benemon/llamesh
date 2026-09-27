@@ -1,0 +1,29 @@
+# roles/llamesh/tasks/main.yml
+---
+- name: Check what this host runs
+  ansible.builtin.assert:
+    that:
+      - llamesh_server or llamesh_collector
+      - not llamesh_collector or llamesh_server_host
+    fail_msg: Set llamesh_server, or llamesh_collector with llamesh_server_host, or both.
+    quiet: true
+
+- name: Work out the platform and paths
+  ansible.builtin.set_fact:
+    _llamesh_os: "{{ ansible_facts.system | lower }}"
+    _llamesh_arch: "{{ {'x86_64': 'amd64', 'amd64': 'amd64', 'aarch64': 'arm64', 'arm64': 'arm64'}[ansible_facts.architecture] }}"
+    _llamesh_bin: "{{ ansible_facts.user_dir ~ '/.local/bin/llamesh' if ansible_facts.system == 'Darwin' else '/usr/local/bin/llamesh' }}"
+    _llamesh_token_path: "{{ ansible_facts.user_dir ~ '/.config/llamesh/token' if ansible_facts.system == 'Darwin' else '/etc/llamesh/token' }}"
+    _llamesh_modes: "{{ (['server'] if llamesh_server else []) + (['collector'] if llamesh_collector else []) }}"
+
+- name: Install the release
+  ansible.builtin.import_tasks: install.yml
+
+- name: Share the token
+  ansible.builtin.import_tasks: token.yml
+
+- name: Run the services
+  ansible.builtin.include_tasks: "service_{{ _llamesh_os }}.yml"
+  loop: "{{ _llamesh_modes }}"
+  loop_control:
+    loop_var: _llamesh_mode

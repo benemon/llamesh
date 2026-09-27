@@ -1,0 +1,3 @@
+# The example playbook names the role by its collection, which is not installed where the linter runs.
+mock_roles:
+  - benemon.llamesh.llamesh

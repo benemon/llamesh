@@ -1,0 +1,97 @@
+# roles/llamesh/tasks/install.yml
+#
+# The release is fetched and checked on the control node and copied to the host, so hosts need no
+# route to GitHub. Every archive in a release is listed in its SHA256SUMS, which is what cosign signs.
+---
+- name: Find the latest release
+  ansible.builtin.uri:
+    url: "https://api.github.com/repos/{{ llamesh_repo }}/releases/latest"
+    headers:
+      Accept: application/vnd.github+json
+  register: _llamesh_latest
+  delegate_to: localhost
+  become: false
+  run_once: true
+  when: llamesh_version == 'latest'
+
+- name: Settle the version
+  ansible.builtin.set_fact:
+    _llamesh_tag: "{{ _llamesh_latest.json.tag_name if llamesh_version == 'latest' else llamesh_version }}"
+
+- name: Set the release's names
+  ansible.builtin.set_fact:
+    _llamesh_url: "https://github.com/{{ llamesh_repo }}/releases/download/{{ _llamesh_tag }}"
+    _llamesh_dir: "{{ llamesh_cache_dir }}/{{ _llamesh_tag }}"
+    _llamesh_archive: "llamesh_{{ _llamesh_tag }}_{{ _llamesh_os }}_{{ _llamesh_arch }}.tar.gz"
+
+- name: Create the release's cache directory
+  ansible.builtin.file:
+    path: "{{ _llamesh_dir }}/{{ _llamesh_os }}_{{ _llamesh_arch }}"
+    state: directory
+    mode: "0755"
+  delegate_to: localhost
+  become: false
+
+- name: Fetch the checksums and their signature
+  ansible.builtin.get_url:
+    url: "{{ _llamesh_url }}/{{ item }}"
+    dest: "{{ _llamesh_dir }}/{{ item }}"
+    mode: "0644"
+  loop: [SHA256SUMS, SHA256SUMS.cosign.bundle]
+  delegate_to: localhost
+  become: false
+  throttle: 1
+
+- name: Verify the checksums' signature
+  ansible.builtin.command:
+    argv:
+      - cosign
+      - verify-blob
+      - --bundle
+      - "{{ _llamesh_dir }}/SHA256SUMS.cosign.bundle"
+      - --certificate-identity-regexp
+      - "^https://github.com/{{ llamesh_repo }}/\\.github/workflows/release\\.yml@"
+      - --certificate-oidc-issuer
+      - https://token.actions.githubusercontent.com
+      - "{{ _llamesh_dir }}/SHA256SUMS"
+  delegate_to: localhost
+  become: false
+  run_once: true
+  changed_when: false
+  when: llamesh_verify_signature
+
+- name: Fetch the archive for this platform, checked against the checksums
+  ansible.builtin.get_url:
+    url: "{{ _llamesh_url }}/{{ _llamesh_archive }}"
+    dest: "{{ _llamesh_dir }}/{{ _llamesh_archive }}"
+    checksum: "sha256:{{ _llamesh_sums | regex_search('([0-9a-f]{64})\\s+' ~ (_llamesh_archive | regex_escape), '\\1') | first }}"
+    mode: "0644"
+  vars:
+    _llamesh_sums: "{{ lookup('ansible.builtin.file', _llamesh_dir ~ '/SHA256SUMS') }}"
+  delegate_to: localhost
+  become: false
+  throttle: 1
+
+# unarchive would need GNU tar on a macOS control node; the system tar reads the archive.
+- name: Unpack the binary
+  ansible.builtin.command:
+    argv: [tar, -xzf, "{{ _llamesh_dir }}/{{ _llamesh_archive }}", -C, "{{ _llamesh_dir }}/{{ _llamesh_os }}_{{ _llamesh_arch }}"]
+    creates: "{{ _llamesh_dir }}/{{ _llamesh_os }}_{{ _llamesh_arch }}/llamesh"
+  delegate_to: localhost
+  become: false
+  throttle: 1
+
+- name: Create the binary's directory
+  ansible.builtin.file:
+    path: "{{ _llamesh_bin | dirname }}"
+    state: directory
+    mode: "0755"
+  become: "{{ _llamesh_os == 'linux' }}"
+
+- name: Install the binary
+  ansible.builtin.copy:
+    src: "{{ _llamesh_dir }}/{{ _llamesh_os }}_{{ _llamesh_arch }}/llamesh"
+    dest: "{{ _llamesh_bin }}"
+    mode: "0755"
+  become: "{{ _llamesh_os == 'linux' }}"
+  register: _llamesh_binary
