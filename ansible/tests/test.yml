@@ -4,11 +4,10 @@
   hosts: localhost
   connection: local
   vars:
-    llamesh_version: v0.1.0
+    llamesh_version: v0.2.0
     llamesh_verify_signature: true
     llamesh_server: true
     llamesh_collector: 127.0.0.1:8900
     llamesh_server_host: localhost
-    llamesh_token_tls: false # v0.1.0 predates it
   roles:
     - benemon.llamesh.llamesh

@@ -36,10 +36,12 @@ jobs:
           ~/venv/bin/ansible-galaxy collection install ./ansible
       - name: Run the role
         run: ansible-playbook -i localhost, ansible/tests/test.yml
-      - name: Check the services and the page
+      - name: Check the services, the page and token TLS
         run: |
           systemctl is-active llamesh-server llamesh-collector
           curl -fsS http://127.0.0.1:8899/ | grep -q '<title>'
+          grep -q -- ' -token-tls' /etc/systemd/system/llamesh-server.service /etc/systemd/system/llamesh-collector.service
+          openssl s_client -connect 127.0.0.1:8900 -alpn h2 -brief </dev/null
           sleep 5
           sudo journalctl -u llamesh-collector --no-pager | grep 'reporting as'
       - name: Run the role again; nothing changes
@@ -48,7 +50,7 @@ jobs:
           grep -Eq 'localhost +: ok=[0-9]+ +changed=0 ' second.log
       - name: Token TLS refuses a release that predates it
         run: |
-          if ansible-playbook -i localhost, ansible/tests/test.yml -e '{"llamesh_token_tls": true}' > token.log 2>&1; then exit 1; fi
+          if ansible-playbook -i localhost, ansible/tests/test.yml -e '{"llamesh_version": "v0.1.0"}' > token.log 2>&1; then exit 1; fi
           grep -q 'predates -token-tls' token.log
       - name: A certificate and a key take precedence over token TLS
         run: |
@@ -65,11 +67,20 @@ jobs:
           openssl s_client -connect 127.0.0.1:8900 -alpn h2 -CAfile ca.crt -verify_return_error -brief </dev/null
           sleep 5
           sudo journalctl -u llamesh-server --since "$since" --no-pager | grep 'collector .* connected'
-      - name: With the key missing, fall back to plaintext
+
+      - name: With the key missing, fall back to token TLS
         run: |
           since=$(date '+%F %T'); sleep 1
           ansible-playbook -i localhost, ansible/tests/test.yml -e @cert-only.json
-          if openssl s_client -connect 127.0.0.1:8900 -alpn h2 -brief </dev/null; then exit 1; fi
+          grep -q -- ' -token-tls' /etc/systemd/system/llamesh-server.service
+          if openssl s_client -connect 127.0.0.1:8900 -alpn h2 -CAfile ca.crt -verify_return_error -brief </dev/null; then exit 1; fi
           sudo test ! -e /etc/llamesh/tls.key
+          sleep 5
+          sudo journalctl -u llamesh-server --since "$since" --no-pager | grep 'collector .* connected'
+      - name: With token TLS off and no certificate, run in plaintext
+        run: |
+          since=$(date '+%F %T'); sleep 1
+          ansible-playbook -i localhost, ansible/tests/test.yml -e '{"llamesh_token_tls": false}'
+          if openssl s_client -connect 127.0.0.1:8900 -alpn h2 -brief </dev/null; then exit 1; fi
           sleep 5
           sudo journalctl -u llamesh-server --since "$since" --no-pager | grep 'collector .* connected'
