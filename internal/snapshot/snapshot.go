@@ -18,19 +18,21 @@ import (
 
 // Collector holds the discovered target and the previous poll's counters.
 type Collector struct {
-	Client   *llamaserver.Client
-	Args     discover.Args
-	Log      loadlog.Source
-	Local    string            // hostname of the machine running llama-server
-	HostMem  int64             // the machine's RAM: the total of a server on the CPU alone
-	Names    map[string]string // RPC node IP -> discovered hostname
-	Ifaces   map[string]string // RPC node address -> interface
-	props    llamaserver.Props
-	lastT    time.Time
-	lastM    map[string]float64
-	lastSlot llamaserver.Slot
-	lastLink map[string]link.Counters
-	last     *pb.Snapshot
+	Client        *llamaserver.Client
+	Args          discover.Args
+	Log           loadlog.Source
+	Local         string            // hostname of the machine running llama-server
+	HostMem       int64             // the machine's RAM: the total of a server on the CPU alone
+	Names         map[string]string // RPC node IP -> discovered hostname
+	Ifaces        map[string]string // RPC node address -> interface
+	props         llamaserver.Props
+	lastT         time.Time
+	lastM         map[string]float64
+	lastSlot      llamaserver.Slot
+	promptElapsed float64
+	promptRate    float64
+	lastLink      map[string]link.Counters
+	last          *pb.Snapshot
 }
 
 // Poll reads the live sources once and returns the snapshot. A source that fails keeps its previous
@@ -179,27 +181,47 @@ func (c *Collector) rates(local *pb.Node, s *pb.Snapshot, metrics map[string]flo
 	if slot == nil {
 		return
 	}
-	// llamacpp's counters advance when a request completes; while one is in flight the slot's own
-	// progress is the live rate, with a reset (a new request) read as that request's first tokens.
+	request, fromLog := loadlog.Request{}, false
+	if c.Log != nil {
+		request, fromLog = c.Log.Request(slot.ID)
+		fromLog = fromLog && request.Task == slot.Task
+	}
+	nPrompt := slot.NPrompt
+	if fromLog {
+		nPrompt = request.NPrompt
+	}
+	// llamacpp's counters advance when a request completes; while one is in flight the log or slot
+	// progress is the live rate.
 	if slot.Processing && dt > 0 {
-		live := func(now, prev int) float64 {
-			if now < prev {
+		if slot.NDecoded == 0 && (!fromLog || request.NGenerated == 0) {
+			local.TokensPerS = &zero
+			c.slotPromptRate(slot, dt)
+			local.PromptTokensPerS = &c.promptRate
+			// The log prints a chunk's line seconds after /slots shows it, and nothing before the first
+			// chunk ends; until then the slot's own steps give the rate.
+			if fromLog && request.PromptTokensPerS > 0 {
+				local.PromptTokensPerS = &request.PromptTokensPerS
+			}
+		} else {
+			c.promptElapsed, c.promptRate = 0, 0
+			prev := c.lastSlot.NDecoded
+			if slot.NDecoded < prev {
 				prev = 0
 			}
-			return float64(now-prev) / dt
-		}
-		g := live(slot.NDecoded, c.lastSlot.NDecoded)
-		p := live(slot.NProcessed, c.lastSlot.NProcessed)
-		if g > 0 || *local.TokensPerS == 0 {
-			local.TokensPerS = &g
-		}
-		if p > 0 || *local.PromptTokensPerS == 0 {
-			local.PromptTokensPerS = &p
+			g := float64(slot.NDecoded-prev) / dt
+			if fromLog && request.NGenerated > 0 {
+				g = request.TokensPerS
+			}
+			if g > 0 || *local.TokensPerS == 0 {
+				local.TokensPerS = &g
+			}
+			local.PromptTokensPerS = &zero
 		}
 	} else if c.lastSlot.Processing {
 		// The request just finished: its tokens were counted live as it ran, and the counters now jump
 		// by the whole request at once, which would read as a burst.
 		local.TokensPerS, local.PromptTokensPerS = &zero, &zero
+		c.promptElapsed, c.promptRate = 0, 0
 	}
 	if metrics == nil {
 		rp := int32(0)
@@ -209,8 +231,23 @@ func (c *Collector) rates(local *pb.Node, s *pb.Snapshot, metrics map[string]flo
 		local.RequestsProcessing = &rp
 	}
 	c.lastSlot = *slot
-	local.Slot = &pb.Slot{Processing: slot.Processing, NPrompt: int32(slot.NPrompt), NCached: int32(slot.NCached),
+	local.Slot = &pb.Slot{Processing: slot.Processing, NPrompt: int32(nPrompt), NCached: int32(slot.NCached),
 		NProcessed: int32(slot.NProcessed), NDecoded: int32(slot.NDecoded)}
+}
+
+// slotPromptRate updates the prompt rate from /slots: prefill advances in ubatch chunks, many polls apart,
+// so the rate is the tokens of a step over the time since the previous step, held until the next.
+func (c *Collector) slotPromptRate(slot *llamaserver.Slot, dt float64) {
+	last := c.lastSlot
+	if !last.Processing || last.ID != slot.ID || last.Task != slot.Task || last.NDecoded != 0 {
+		c.promptElapsed, c.promptRate = 0, 0
+		return
+	}
+	c.promptElapsed += dt
+	if slot.NProcessed != last.NProcessed {
+		c.promptRate = float64(slot.NProcessed-last.NProcessed) / c.promptElapsed
+		c.promptElapsed = 0
+	}
 }
 
 // rpcNodes adds a node and a link per RPC address on the command line, in that order.

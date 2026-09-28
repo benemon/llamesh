@@ -101,6 +101,8 @@ func ParseMetrics(text string) map[string]float64 {
 }
 
 type Slot struct {
+	ID         int  `json:"id"`
+	Task       int  `json:"id_task"`
 	Processing bool `json:"processing"`
 	NPrompt    int  `json:"n_prompt"`
 	NCached    int  `json:"n_cached"`
@@ -120,6 +122,8 @@ func (c *Client) Slot() (Slot, error) {
 // when none is: llama-server runs several slots by default and places a request in any of them.
 func ParseSlots(b []byte) (Slot, error) {
 	var raw []struct {
+		ID         int             `json:"id"`
+		Task       int             `json:"id_task"`
 		Processing bool            `json:"is_processing"`
 		NPrompt    int             `json:"n_prompt_tokens"`
 		NCached    int             `json:"n_prompt_tokens_cache"`
@@ -139,7 +143,7 @@ func ParseSlots(b []byte) (Slot, error) {
 			break
 		}
 	}
-	slot := Slot{Processing: s.Processing, NPrompt: s.NPrompt, NCached: s.NCached, NProcessed: s.NProcessed}
+	slot := Slot{ID: s.ID, Task: s.Task, Processing: s.Processing, NPrompt: s.NPrompt, NCached: s.NCached, NProcessed: s.NProcessed}
 	type nt struct {
 		NDecoded int `json:"n_decoded"`
 	}
