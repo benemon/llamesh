@@ -27,6 +27,14 @@
       else 'token' if llamesh_token_tls else 'plain' }}
   when: llamesh_server
 
+- name: Check the server's host is in this run
+  ansible.builtin.assert:
+    that: _llamesh_server_name in hostvars and hostvars[_llamesh_server_name]._llamesh_server_transport is defined
+    fail_msg: >-
+      {{ _llamesh_server_name }} must run this role in the same ansible-playbook run as the collectors that report to it:
+      they read its token and its choice of TLS from there.
+    quiet: true
+
 - name: Follow the server's choice
   ansible.builtin.set_fact:
     _llamesh_transport: "{{ hostvars[_llamesh_server_name]._llamesh_server_transport }}"
