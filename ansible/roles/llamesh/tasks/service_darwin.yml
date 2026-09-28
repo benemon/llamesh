@@ -26,7 +26,7 @@
 
 - name: Unload the agent to pick up a new binary or definition for {{ _llamesh_mode }}
   ansible.builtin.command: launchctl bootout {{ _llamesh_domain }}/{{ _llamesh_label }}
-  when: _llamesh_loaded.rc == 0 and (_llamesh_agent.changed or _llamesh_binary.changed)
+  when: _llamesh_loaded.rc == 0 and (_llamesh_agent.changed or _llamesh_binary.changed or (_llamesh_mode == 'server' and _llamesh_tls_files is changed))
   register: _llamesh_unloaded
   changed_when: true
 

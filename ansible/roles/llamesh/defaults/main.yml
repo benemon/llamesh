@@ -17,6 +17,12 @@ llamesh_ingest: ":8900"
 llamesh_collector: ""
 llamesh_server_host: ""
 llamesh_poll: 1s
+# TLS on the ingest port authenticated by the token, with no certificates to manage; v0.2.0 or later.
+llamesh_token_tls: true
+# The server's certificate and key, as PEM. With both set they take precedence over token TLS, and
+# collectors verify the certificate against their host's trusted roots.
+llamesh_tls_cert: ""
+llamesh_tls_key: ""
 # Linux only: the user the collector runs as. It reads the llama-servers' logs, /proc entries and
 # journal, so it is their user or root.
 llamesh_collector_user: root

@@ -27,7 +27,7 @@ import (
 // collect watches the host's llama-servers and reports them to the server until the process is stopped.
 // Polling runs whether or not the server is reachable; what was queued while it was not is discarded when
 // it comes back, since the next poll is current.
-func collect(server string, useTLS bool, token string, poll time.Duration, spec string) {
+func collect(server string, useTLS bool, token string, tokenTLS bool, poll time.Duration, spec string) {
 	port, err := targetPort(spec)
 	if err != nil {
 		log.Fatal(err)
@@ -35,7 +35,7 @@ func collect(server string, useTLS bool, token string, poll time.Duration, spec 
 	local := discover.LocalHostName()
 	hostMem := discover.MemTotal()
 	out := make(chan *pb.ReportRequest, 16)
-	go report(server, useTLS, token, local, out)
+	go report(server, useTLS, token, tokenTLS, local, out)
 	// Never blocks polling: when the queue is full the oldest entry makes room, so a Gone is not lost.
 	send := func(r *pb.ReportRequest) {
 		for {
@@ -108,9 +108,11 @@ func collect(server string, useTLS bool, token string, poll time.Duration, spec 
 
 // report holds one stream open to the server, reconnecting with backoff, and sends a Hello at the start
 // of each stream so the server knows the host and its addresses.
-func report(server string, useTLS bool, token, local string, in chan *pb.ReportRequest) {
+func report(server string, useTLS bool, token string, tokenTLS bool, local string, in chan *pb.ReportRequest) {
 	creds := insecure.NewCredentials()
-	if useTLS {
+	if tokenTLS {
+		creds = tokenTLSClientCredentials(token)
+	} else if useTLS {
 		creds = credentials.NewClientTLSFromCert(nil, "")
 	}
 	conn, err := grpc.NewClient(server, grpc.WithTransportCredentials(creds),
@@ -121,7 +123,7 @@ func report(server string, useTLS bool, token, local string, in chan *pb.ReportR
 	client := pb.NewIngestServiceClient(conn)
 	backoff := time.Second
 	for {
-		sent, err := stream(client, token, local, in)
+		sent, err := stream(client, token, tokenTLS, local, in)
 		if sent {
 			backoff = time.Second
 		}
@@ -132,10 +134,10 @@ func report(server string, useTLS bool, token, local string, in chan *pb.ReportR
 }
 
 // stream reports until the stream fails, and says whether any snapshot got through.
-func stream(client pb.IngestServiceClient, token, local string, in chan *pb.ReportRequest) (bool, error) {
+func stream(client pb.IngestServiceClient, token string, tokenTLS bool, local string, in chan *pb.ReportRequest) (bool, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	if token != "" {
+	if token != "" && !tokenTLS {
 		ctx = metadata.AppendToOutgoingContext(ctx, "authorization", "Bearer "+token)
 	}
 	st, err := client.Report(ctx)

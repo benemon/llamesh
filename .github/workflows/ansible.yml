@@ -46,3 +46,30 @@ jobs:
         run: |
           ansible-playbook -i localhost, ansible/tests/test.yml | tee second.log
           grep -Eq 'localhost +: ok=[0-9]+ +changed=0 ' second.log
+      - name: Token TLS refuses a release that predates it
+        run: |
+          if ansible-playbook -i localhost, ansible/tests/test.yml -e '{"llamesh_token_tls": true}' > token.log 2>&1; then exit 1; fi
+          grep -q 'predates -token-tls' token.log
+      - name: A certificate and a key take precedence over token TLS
+        run: |
+          d=$(mktemp -d)
+          openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -days 1 -subj /CN=llamesh-test-ca -keyout "$d/ca.key" -out ca.crt
+          openssl req -new -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -subj /CN=127.0.0.1 -keyout "$d/tls.key" -out "$d/tls.csr"
+          printf 'subjectAltName=IP:127.0.0.1\n' > "$d/ext"
+          openssl x509 -req -in "$d/tls.csr" -CA ca.crt -CAkey "$d/ca.key" -CAcreateserial -days 1 -extfile "$d/ext" -out "$d/tls.crt"
+          sudo cp ca.crt /usr/local/share/ca-certificates/llamesh-test-ca.crt && sudo update-ca-certificates
+          jq -n --rawfile c "$d/tls.crt" --rawfile k "$d/tls.key" '{llamesh_tls_cert: $c, llamesh_tls_key: $k, llamesh_token_tls: true}' > tls.json
+          jq -n --rawfile c "$d/tls.crt" '{llamesh_tls_cert: $c}' > cert-only.json
+          since=$(date '+%F %T'); sleep 1
+          ansible-playbook -i localhost, ansible/tests/test.yml -e @tls.json
+          openssl s_client -connect 127.0.0.1:8900 -alpn h2 -CAfile ca.crt -verify_return_error -brief </dev/null
+          sleep 5
+          sudo journalctl -u llamesh-server --since "$since" --no-pager | grep 'collector .* connected'
+      - name: With the key missing, fall back to plaintext
+        run: |
+          since=$(date '+%F %T'); sleep 1
+          ansible-playbook -i localhost, ansible/tests/test.yml -e @cert-only.json
+          if openssl s_client -connect 127.0.0.1:8900 -alpn h2 -brief </dev/null; then exit 1; fi
+          sudo test ! -e /etc/llamesh/tls.key
+          sleep 5
+          sudo journalctl -u llamesh-server --since "$since" --no-pager | grep 'collector .* connected'

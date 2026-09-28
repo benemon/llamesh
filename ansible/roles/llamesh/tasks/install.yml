@@ -20,6 +20,12 @@
   ansible.builtin.set_fact:
     _llamesh_tag: "{{ _llamesh_latest.json.tag_name if llamesh_version == 'latest' else llamesh_version }}"
 
+- name: Check the release has token TLS
+  ansible.builtin.assert:
+    that: _llamesh_transport != 'token' or _llamesh_tag is version('v0.2.0', '>=')
+    fail_msg: "llamesh {{ _llamesh_tag }} predates -token-tls. Set llamesh_version to v0.2.0 or later, or llamesh_token_tls to false."
+    quiet: true
+
 - name: Set the release's names
   ansible.builtin.set_fact:
     _llamesh_url: "https://github.com/{{ llamesh_repo }}/releases/download/{{ _llamesh_tag }}"

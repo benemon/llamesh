@@ -41,6 +41,19 @@ argument_specs:
         type: str
         default: 1s
         description: How often a collector reads its llama-servers.
+      llamesh_token_tls:
+        type: bool
+        default: true
+        description: TLS on the ingest port authenticated by the token, with no certificates; v0.2.0 or later.
+      llamesh_tls_cert:
+        type: str
+        default: ""
+        description: The server's certificate as PEM. With llamesh_tls_key, serves the ingest port over TLS.
+      llamesh_tls_key:
+        type: str
+        default: ""
+        no_log: true
+        description: The server's private key as PEM. With llamesh_tls_cert, serves the ingest port over TLS.
       llamesh_collector_user:
         type: str
         default: root

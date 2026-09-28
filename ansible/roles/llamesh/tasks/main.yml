@@ -15,12 +15,48 @@
     _llamesh_bin: "{{ ansible_facts.user_dir ~ '/.local/bin/llamesh' if ansible_facts.system == 'Darwin' else '/usr/local/bin/llamesh' }}"
     _llamesh_token_path: "{{ ansible_facts.user_dir ~ '/.config/llamesh/token' if ansible_facts.system == 'Darwin' else '/etc/llamesh/token' }}"
     _llamesh_modes: "{{ (['server'] if llamesh_server else []) + (['collector'] if llamesh_collector | length > 0 else []) }}"
+    # The host whose server this host's services use: its token, and its TLS settings.
+    _llamesh_server_name: "{{ llamesh_server_host if llamesh_collector | length > 0 else inventory_hostname }}"
+
+# Play variables and role parameters are not in hostvars, so the server's host publishes its choice as a
+# fact for its collectors to read.
+- name: Choose how the server accepts collectors
+  ansible.builtin.set_fact:
+    _llamesh_server_transport: >-
+      {{ 'cert' if llamesh_tls_cert | length > 0 and llamesh_tls_key | length > 0
+      else 'token' if llamesh_token_tls else 'plain' }}
+  when: llamesh_server
+
+- name: Follow the server's choice
+  ansible.builtin.set_fact:
+    _llamesh_transport: "{{ hostvars[_llamesh_server_name]._llamesh_server_transport }}"
 
 - name: Install the release
   ansible.builtin.import_tasks: install.yml
 
 - name: Share the token
   ansible.builtin.import_tasks: token.yml
+
+- name: Write the server's certificate and key
+  ansible.builtin.copy:
+    content: "{{ item.content }}"
+    dest: "{{ _llamesh_token_path | dirname }}/{{ item.name }}"
+    mode: "0600"
+  loop:
+    - { name: tls.crt, content: "{{ llamesh_tls_cert }}" }
+    - { name: tls.key, content: "{{ llamesh_tls_key }}" }
+  become: "{{ _llamesh_os == 'linux' }}"
+  when: llamesh_server and _llamesh_transport == 'cert'
+  register: _llamesh_tls_files
+  no_log: true
+
+- name: Remove the server's certificate and key when they are not in use
+  ansible.builtin.file:
+    path: "{{ _llamesh_token_path | dirname }}/{{ item }}"
+    state: absent
+  loop: [tls.crt, tls.key]
+  become: "{{ _llamesh_os == 'linux' }}"
+  when: llamesh_server and _llamesh_transport != 'cert'
 
 - name: Run the services
   ansible.builtin.include_tasks: "service_{{ _llamesh_os }}.yml"

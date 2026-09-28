@@ -22,5 +22,9 @@
     name: "llamesh-{{ _llamesh_mode }}"
     enabled: true
     daemon_reload: "{{ _llamesh_unit.changed }}"
-    state: "{{ 'restarted' if (_llamesh_unit.changed or _llamesh_env.changed or _llamesh_binary.changed) else 'started' }}"
+    state: "{{ 'restarted' if _llamesh_restart else 'started' }}"
+  vars:
+    _llamesh_restart: >-
+      {{ _llamesh_unit.changed or _llamesh_env.changed or _llamesh_binary.changed
+      or (_llamesh_mode == 'server' and _llamesh_tls_files is changed) }}
   become: true

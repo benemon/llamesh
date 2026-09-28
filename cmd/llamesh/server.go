@@ -33,7 +33,7 @@ var pageJSON = protojson.MarshalOptions{UseProtoNames: true, EmitUnpopulated: tr
 const replayAge = 30 * time.Second
 
 // serve accepts collector streams on ingest and serves the page, and its SSE stream of snapshots, on listen.
-func serve(listen, ingest, cert, key, token string) error {
+func serve(listen, ingest, cert, key, token string, tokenTLS bool) error {
 	if (cert == "") != (key == "") {
 		return errors.New("-tls-cert and -tls-key go together")
 	}
@@ -43,7 +43,13 @@ func serve(listen, ingest, cert, key, token string) error {
 		grpc.KeepaliveParams(keepalive.ServerParameters{Time: 30 * time.Second, Timeout: 10 * time.Second}),
 		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{MinTime: 20 * time.Second, PermitWithoutStream: true}),
 	}
-	if cert != "" {
+	if tokenTLS {
+		creds, err := tokenTLSServerCredentials(token)
+		if err != nil {
+			return err
+		}
+		opts = append(opts, grpc.Creds(creds))
+	} else if cert != "" {
 		creds, err := credentials.NewServerTLSFromFile(cert, key)
 		if err != nil {
 			return err
@@ -55,7 +61,7 @@ func serve(listen, ingest, cert, key, token string) error {
 	}
 	h := newHub()
 	gs := grpc.NewServer(opts...)
-	pb.RegisterIngestServiceServer(gs, &ingestServer{hub: h, token: token})
+	pb.RegisterIngestServiceServer(gs, &ingestServer{hub: h, token: token, tokenTLS: tokenTLS})
 	ln, err := net.Listen("tcp", ingest)
 	if err != nil {
 		return err
@@ -72,16 +78,17 @@ func serve(listen, ingest, cert, key, token string) error {
 
 type ingestServer struct {
 	pb.UnimplementedIngestServiceServer
-	hub     *hub
-	token   string
-	streams atomic.Int64
+	hub      *hub
+	token    string
+	tokenTLS bool
+	streams  atomic.Int64
 }
 
 // Report is one collector's stream. What it reports belongs to the stream, and is withdrawn when the stream
 // ends unless a newer stream has taken it over.
 func (s *ingestServer) Report(st grpc.BidiStreamingServer[pb.ReportRequest, pb.ReportResponse]) error {
 	from := peerOf(st)
-	if s.token != "" {
+	if s.token != "" && !s.tokenTLS {
 		md, _ := metadata.FromIncomingContext(st.Context())
 		got := ""
 		if v := md.Get("authorization"); len(v) == 1 {
