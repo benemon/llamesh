@@ -26,7 +26,7 @@ context cache at its core, with a read-out of the layer being passed. The theme 
 selects dark, light or the system setting.
 
 Everything drawn comes from the servers and from name discovery on the local network. A collector needs
-only the server's address; the server needs no list of collectors.
+the server's address and the shared token; the server needs no list of collectors.
 
 ## Prerequisites
 
@@ -103,8 +103,9 @@ same one.
 
 - Token TLS, `-token-tls` on both: TLS 1.3 with no certificates to manage. The server makes a
   certificate when it starts and the collector does not check it. Instead, before anything else is
-  sent, the collector and then the server prove they hold `LLAMESH_TOKEN`, bound to that TLS session.
-  The token never crosses the network. Whatever a collector dials sees its proof and could guess at the
+  sent, the collector and then the server prove they hold `LLAMESH_TOKEN`, bound to that TLS session
+  with its `tls-exporter` channel binding ([RFC 9266](https://www.rfc-editor.org/rfc/rfc9266)). The
+  token never crosses the network. Whatever a collector dials sees its proof and could guess at the
   token offline, so the token must be at least 32 characters; a random token of that length is out of
   reach.
 - Certificate TLS, `-tls-cert` and `-tls-key` on the server and `-tls` on the collector: the collector
@@ -158,8 +159,9 @@ llama.cpp build each is checked against, and what is not readable.
 
 ## Development
 
-`go test ./...` runs the parsers against the recorded outputs in `testdata/`, and the server's handling
-of collector streams. `test/linux-e2e.sh` runs a CPU llama-server under systemd, split to an RPC node,
+`go test ./...` runs the parsers against the recorded outputs in `testdata/`, the server's handling
+of collector streams, and the token TLS handshake over real TLS: a wrong token on either side, a relay
+that forwards the proofs between two TLS sessions, a reflected proof and TLS 1.2 are each refused. `test/linux-e2e.sh` runs a CPU llama-server under systemd, split to an RPC node,
 with a server and collector, and checks what the page receives; CI runs it on Ubuntu.
 
 For the page without a collector:
