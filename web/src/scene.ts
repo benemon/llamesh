@@ -312,6 +312,7 @@ export class Scene {
   private hosts = new Map<string, Host>();
   private hostOf = new Map<string, string>(); // blob id -> host id
   private focused: string | null = null;
+  private glideTo: THREE.Vector3 | null = null;
   private streams: Stream[] = [];
   onPick: (id: string) => void = () => {};
   dragged = false;
@@ -348,6 +349,12 @@ export class Scene {
       const dt = Math.min(0.1, (now - last) / 1000);
       last = now;
       this.time += dt;
+      if (this.glideTo) {
+        const step = this.glideTo.clone().sub(this.controls.target).multiplyScalar(Math.min(1, dt * 6));
+        this.controls.target.add(step);
+        this.camera.position.add(step);
+        if (this.controls.target.distanceTo(this.glideTo) < 0.5) this.glideTo = null;
+      }
       this.controls.update();
       for (const s of this.streams) s.tick(dt);
       for (const b of this.blobs.values()) { b.camDist = this.camera.position.distanceTo(b.group.position); b.tick(dt, this.time); }
@@ -377,12 +384,19 @@ export class Scene {
     for (const h of this.hosts.values()) h.dim = sourceKey === null || [...this.blobs.values()].some((b) => this.hostOf.get(b.id) === h.id && b.sourceKey === sourceKey) ? 1 : 0.12;
   }
 
+  // Pans to the middle of one server's bodies, keeping the viewing angle and distance.
+  centre(sourceKey: string) {
+    const members = [...this.blobs.values()].filter((b) => b.sourceKey === sourceKey);
+    if (members.length === 0) return;
+    this.glideTo = members.reduce((c, b) => c.add(b.group.position), new THREE.Vector3()).divideScalar(members.length);
+  }
+
   // How far in the viewer has come, relative to the starting distance; the page reveals detail past ~1.8.
   get zoom() { return this.baseDist / Math.max(1, this.camera.position.distanceTo(this.controls.target)); }
 
   private installPicking() {
     let down: { x: number; y: number; t: number } | null = null;
-    this.canvas.addEventListener("pointerdown", (e) => { down = { x: e.clientX, y: e.clientY, t: performance.now() }; this.dragged = false; });
+    this.canvas.addEventListener("pointerdown", (e) => { down = { x: e.clientX, y: e.clientY, t: performance.now() }; this.dragged = false; this.glideTo = null; });
     this.canvas.addEventListener("pointermove", (e) => { if (down && Math.hypot(e.clientX - down.x, e.clientY - down.y) > 6) this.dragged = true; });
     this.canvas.addEventListener("pointerup", (e) => {
       if (!down) return;

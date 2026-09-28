@@ -179,6 +179,7 @@ export class UI {
       el.addEventListener("click", () => {
         this.pinnedFocus = this.pinnedFocus === key ? null : key;
         this.scene.focus(this.pinnedFocus ?? key);
+        if (this.pinnedFocus) this.scene.centre(key);
         for (const [k, c] of this.cells) c.classList.toggle("pinned", k === `src:${this.pinnedFocus}`);
       });
       this.cells.set(`src:${src.id}`, el);
