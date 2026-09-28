@@ -48,6 +48,10 @@ jobs:
         run: |
           ansible-playbook -i localhost, ansible/tests/test.yml | tee second.log
           grep -Eq 'localhost +: ok=[0-9]+ +changed=0 ' second.log
+      - name: A collector without its server in the run is refused
+        run: |
+          if ansible-playbook -i localhost, ansible/tests/test.yml -e '{"llamesh_server": false, "llamesh_server_host": "elsewhere"}' > alone.log 2>&1; then exit 1; fi
+          grep -q 'must run this role in the same ansible-playbook run' alone.log
       - name: Token TLS refuses a release that predates it
         run: |
           if ansible-playbook -i localhost, ansible/tests/test.yml -e '{"llamesh_version": "v0.1.0"}' > token.log 2>&1; then exit 1; fi

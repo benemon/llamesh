@@ -9,6 +9,13 @@
     _llamesh_domain: "gui/{{ ansible_facts.user_uid }}"
     _llamesh_plist: "{{ ansible_facts.user_dir }}/Library/LaunchAgents/io.github.benemon.llamesh.{{ _llamesh_mode }}.plist"
 
+# A new account has no LaunchAgents directory until something creates it.
+- name: Create the LaunchAgents directory
+  ansible.builtin.file:
+    path: "{{ _llamesh_plist | dirname }}"
+    state: directory
+    mode: "0755"
+
 - name: Write the LaunchAgent for {{ _llamesh_mode }}
   ansible.builtin.template:
     src: launchd.plist.j2
