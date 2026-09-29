@@ -10,12 +10,14 @@ function fields(n: ViewNode): [string, string][] {
     ["host", n.source],
     ["device", n.device],
     ["address", n.address],
+  ];
+  if (n.mem_total) f.push(
     ["memory total", fmtB(n.mem_total)],
     ["weights", fmtB(n.mem_model)],
     ["cache", fmtB(n.mem_context)],
     ["compute", fmtB(n.mem_compute)],
     ["held", `${((n.mem_model + n.mem_context + n.mem_compute) / n.mem_total * 100).toFixed(0)} %`],
-  ];
+  );
   // llama.cpp numbers layers from 0; people count from 1, so "1–24 of 36" and "25–36 of 36"
   if (n.layers && n.n_layer) f.push(["layers", `${n.layers.first + 1}–${n.layers.last + 1} of ${n.n_layer}`]);
   if (n.server_slot && n.n_ctx) f.push(["context", `${Math.round(n.ctx_fill * 100)} % of ${(n.n_ctx / 1024).toFixed(0)}k held`]);
@@ -177,6 +179,7 @@ export class UI {
       el.addEventListener("click", () => {
         this.pinnedFocus = this.pinnedFocus === key ? null : key;
         this.scene.focus(this.pinnedFocus ?? key);
+        if (this.pinnedFocus) this.scene.centre(key);
         for (const [k, c] of this.cells) c.classList.toggle("pinned", k === `src:${this.pinnedFocus}`);
       });
       this.cells.set(`src:${src.id}`, el);
@@ -187,14 +190,16 @@ export class UI {
     const colour = "#" + (this.scene.blobs.get(server?.id ?? "")?.colour ?? 0x7fb7ff).toString(16).padStart(6, "0");
     const tps = nodes.reduce((a, n) => a + (n.tokens_per_s ?? 0), 0);
     const slot = server?.slot;
-    const req = !slot ? "" : slot.processing ? (slot.n_processed < slot.n_prompt ? `prompt ${Math.round(slot.n_processed / slot.n_prompt * 100)} %` : "generating") : "idle";
+    const prefill = slot?.processing && slot.n_decoded === 0;
+    const req = !slot ? "" : !slot.processing ? "idle" : prefill ? (slot.n_processed < slot.n_prompt ? `prompt ${Math.round(slot.n_processed / slot.n_prompt * 100)} %` : "prompt") : "generating";
     const st = src.model.structure;
     const set = (sel: string, text: string) => { const c = el!.querySelector(sel)!; if (c.textContent !== text) c.textContent = text; };
     (el.querySelector("i") as HTMLElement).style.background = colour;
     set(".name", src.model.name || "…");
     set(".host", `${src.host}:${src.id.slice(src.id.lastIndexOf("/") + 1)}${nodes.length > 1 ? ` +${nodes.length - 1} rpc` : ""}`);
     set(".shape", `${(src.model.n_ctx / 1024).toFixed(0)}k ctx${st?.n_layer ? ` · ${st.n_layer} layers` : ""}${st?.n_expert ? ` · ${st.n_expert_used}/${st.n_expert} experts` : ""}`);
-    set(".rate", tps > 0 ? `${tps.toFixed(1)} tok/s` : "");
+    const promptTps = server?.prompt_tokens_per_s ?? 0;
+    set(".rate", prefill ? (promptTps > 0 ? `${promptTps.toFixed(0)} prompt tok/s` : "") : tps > 0 ? `${tps.toFixed(1)} tok/s` : "");
     const state = src.stale ? "stale" : req;
     set(".req", state ? ` · ${state}` : "");
     return el;

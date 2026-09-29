@@ -36,6 +36,17 @@ type Split struct {
 // Source is where a Split comes from: a log file, or the systemd journal.
 type Source interface {
 	Latest() Split
+	Request(slot int) (Request, bool)
+}
+
+type Request struct {
+	Task             int
+	NPrompt          int
+	NProcessed       int
+	NGenerated       int
+	PromptTokensPerS float64
+	TokensPerS       float64
+	progressT        float64
 }
 
 // Structure is what print_info states about the model at load, as far as the page draws it.
@@ -50,7 +61,12 @@ var (
 	hostRow   = regexp.MustCompile(`common_memory_breakdown_print: \|\s+- (\w+)\s+\|\s+(\d+) =\s+(\d+) \+\s+(\d+) \+\s+(\d+)\s+\|`)
 	tableRow  = regexp.MustCompile(`common_memory_breakdown_print: \|\s+- (\w+)(?: \(([^)]*)\))?\s+\| ` +
 		`(\d+) = (\d+) \+ \(\s*(\d+) =\s*(\d+) \+\s*(\d+) \+\s*(\d+)\)`)
-	infoLine = regexp.MustCompile(`print_info: (\S+(?: \S+)?)\s+= (.+)$`)
+	infoLine  = regexp.MustCompile(`print_info: (\S+(?: \S+)?)\s+= (.+)$`)
+	newPrompt = regexp.MustCompile(`slot\s+operator\(\): id\s+(\d+) \| task\s+(-?\d+) \| new prompt,.*task\.n_tokens =\s+(\d+)`)
+	progress  = regexp.MustCompile(`slot print_timing: id\s+(\d+) \| task\s+(-?\d+) \| prompt processing, ` +
+		`n_tokens =\s+(\d+),.*t =\s+([\d.]+) s /\s+([\d.]+) tokens per second`)
+	generation = regexp.MustCompile(`slot print_timing: id\s+(\d+) \| task\s+(-?\d+) \| n_gen =\s+(\d+),.*tg_3s =\s+([\d.]+) t/s`)
+	release    = regexp.MustCompile(`slot\s+release: id\s+(\d+) \| task\s+(-?\d+) \| stop processing:`)
 )
 
 // Parse reads every table in text and returns the state after the last one.
@@ -121,10 +137,12 @@ func LayerRanges(devs []Device, nLayer int) [][2]int {
 
 // Follower tails a log written by a running llama-server.
 type Follower struct {
-	path   string
-	offset int64
-	buf    strings.Builder
-	split  Split
+	path     string
+	offset   int64
+	buf      strings.Builder
+	line     strings.Builder
+	split    Split
+	requests map[int]Request
 }
 
 // startMarker is the first line a llama-server run writes at -lv 4; the current load's facts follow it.
@@ -134,7 +152,7 @@ const startMarker = "common_params_print_info: verbosity"
 // The structure lines come early in a load and the memory tables late, with thousands of Metal
 // kernel-compile lines between, so the window is found by searching backwards for the start marker.
 func Open(path string) (*Follower, error) {
-	f := &Follower{path: path}
+	f := &Follower{path: path, requests: map[int]Request{}}
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -152,9 +170,75 @@ func Open(path string) (*Follower, error) {
 	if err != nil {
 		return nil, err
 	}
-	f.split = Parse(string(b))
+	text := string(b)
+	f.split = Parse(text)
+	f.apply(text)
 	f.offset = st.Size()
 	return f, nil
+}
+
+func (f *Follower) apply(text string) {
+	for {
+		i := strings.IndexByte(text, '\n')
+		if i < 0 {
+			break
+		}
+		line := text[:i]
+		if f.line.Len() > 0 {
+			f.line.WriteString(line)
+			line = f.line.String()
+			f.line.Reset()
+		}
+		f.applyLine(line)
+		text = text[i+1:]
+	}
+	f.line.WriteString(text)
+	if f.line.Len() > 4*MiB {
+		f.line.Reset()
+	}
+}
+
+func (f *Follower) applyLine(line string) {
+	if !strings.Contains(line, "| task ") {
+		return
+	}
+	atoi := func(s string) int { n, _ := strconv.Atoi(s); return n }
+	atof := func(s string) float64 { n, _ := strconv.ParseFloat(s, 64); return n }
+	if m := newPrompt.FindStringSubmatch(line); m != nil {
+		f.requests[atoi(m[1])] = Request{Task: atoi(m[2]), NPrompt: atoi(m[3])}
+		return
+	}
+	if m := progress.FindStringSubmatch(line); m != nil {
+		slot, task := atoi(m[1]), atoi(m[2])
+		r, ok := f.requests[slot]
+		if !ok || r.Task != task {
+			return
+		}
+		n, elapsed, cumulative := atoi(m[3]), atof(m[4]), atof(m[5])
+		rate := cumulative
+		if r.progressT > 0 && elapsed > r.progressT {
+			rate = float64(n-r.NProcessed) / (elapsed - r.progressT)
+		}
+		r.NProcessed, r.PromptTokensPerS, r.progressT = n, rate, elapsed
+		f.requests[slot] = r
+		return
+	}
+	if m := generation.FindStringSubmatch(line); m != nil {
+		slot, task := atoi(m[1]), atoi(m[2])
+		r, ok := f.requests[slot]
+		if !ok || r.Task != task {
+			return
+		}
+		r.NGenerated, r.TokensPerS = atoi(m[3]), atof(m[4])
+		f.requests[slot] = r
+		return
+	}
+	if m := release.FindStringSubmatch(line); m != nil {
+		slot, task := atoi(m[1]), atoi(m[2])
+		if r, ok := f.requests[slot]; ok && r.Task == task {
+			delete(f.requests, slot)
+		}
+	}
 }
 
 // lastMarker returns the offset of the last start marker within the final 512 MiB, else the start of that
@@ -200,19 +284,24 @@ func (f *Follower) Latest() Split {
 	if st.Size() < f.offset {
 		f.offset = 0
 		f.buf.Reset()
+		f.line.Reset()
+		clear(f.requests)
 	}
 	if _, err := file.Seek(f.offset, io.SeekStart); err != nil {
 		return f.split
 	}
 	r := bufio.NewReader(file)
+	var added strings.Builder
 	for {
 		line, err := r.ReadString('\n')
 		f.buf.WriteString(line)
+		added.WriteString(line)
 		f.offset += int64(len(line))
 		if err != nil {
 			break
 		}
 	}
+	f.apply(added.String())
 	if f.buf.Len() > 0 && strings.Contains(f.buf.String(), "common_memory_breakdown_print") {
 		text := f.buf.String()
 		if !strings.HasSuffix(text, "\n") { // a table cut mid-line waits for the rest
@@ -226,6 +315,11 @@ func (f *Follower) Latest() Split {
 		f.buf.Reset()
 	}
 	return f.split
+}
+
+func (f *Follower) Request(slot int) (Request, bool) {
+	r, ok := f.requests[slot]
+	return r, ok
 }
 
 // Journal reads a server's table from the systemd journal, where a service's stderr goes when it is not a
@@ -258,3 +352,5 @@ func (j *Journal) Latest() Split {
 	}
 	return j.split
 }
+
+func (j *Journal) Request(int) (Request, bool) { return Request{}, false }

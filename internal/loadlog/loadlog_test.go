@@ -1,6 +1,7 @@
 package loadlog
 
 import (
+	"math"
 	"os"
 	"strings"
 	"testing"
@@ -70,5 +71,97 @@ func TestOpenFindsTheCurrentLoad(t *testing.T) {
 	sp := f.Latest()
 	if sp.Info.NLayer != 24 || len(sp.Devices) == 0 {
 		t.Fatalf("structure not read across the noise: n_layer %d, devices %d", sp.Info.NLayer, len(sp.Devices))
+	}
+}
+
+func TestFollowerRequestLifecycle(t *testing.T) {
+	b, err := os.ReadFile("../../testdata/server-request.log")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(b)
+	end := func(marker string) int {
+		i := strings.Index(text, marker)
+		if i < 0 {
+			t.Fatalf("fixture missing %q", marker)
+		}
+		return strings.Index(text[i:], "\n") + i + 1
+	}
+	path := t.TempDir() + "/server.err"
+	if err := os.WriteFile(path, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	written := 0
+	writeThrough := func(n int) {
+		t.Helper()
+		file, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := file.WriteString(text[written:n]); err != nil {
+			_ = file.Close()
+			t.Fatal(err)
+		}
+		if err := file.Close(); err != nil {
+			t.Fatal(err)
+		}
+		written = n
+		f.Latest()
+	}
+
+	partial := end("task.n_tokens = 24155") - 1
+	writeThrough(partial)
+	if _, ok := f.Request(0); ok {
+		t.Fatal("partial new-prompt line was applied")
+	}
+	writeThrough(end("n_tokens =   4161"))
+	r, ok := f.Request(0)
+	if !ok || r.Task != 861 || r.NPrompt != 24155 || r.NProcessed != 4161 || r.PromptTokensPerS != 239.93 {
+		t.Fatalf("first progress: %+v, %v", r, ok)
+	}
+	writeThrough(end("n_tokens =  10305"))
+	r, _ = f.Request(0)
+	if math.Abs(r.PromptTokensPerS-2048/18.35) > 0.01 {
+		t.Fatalf("chunk rate %v", r.PromptTokensPerS)
+	}
+	writeThrough(end("n_gen =    137"))
+	r, _ = f.Request(0)
+	if r.NGenerated != 137 || r.TokensPerS != 11.37 {
+		t.Fatalf("generation: %+v", r)
+	}
+	writeThrough(end("task 861 | stop processing"))
+	if _, ok := f.Request(0); ok {
+		t.Fatal("released request remains")
+	}
+	writeThrough(end("task.n_tokens = 24087"))
+	r, ok = f.Request(0)
+	if !ok || r.Task != 1450 || r.NPrompt != 24087 {
+		t.Fatalf("replacement request: %+v, %v", r, ok)
+	}
+}
+
+func TestOpenReadsRequestInProgress(t *testing.T) {
+	b, err := os.ReadFile("../../testdata/server-request.log")
+	if err != nil {
+		t.Fatal(err)
+	}
+	marker := []byte("n_tokens =  10305")
+	i := strings.Index(string(b), string(marker))
+	end := strings.IndexByte(string(b[i:]), '\n') + i + 1
+	path := t.TempDir() + "/server.err"
+	if err := os.WriteFile(path, b[:end], 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, ok := f.Request(0)
+	if !ok || r.Task != 861 || r.NPrompt != 24155 || math.Abs(r.PromptTokensPerS-2048/18.35) > 0.01 {
+		t.Fatalf("request: %+v, %v", r, ok)
 	}
 }

@@ -51,8 +51,15 @@ func TestParseSlots(t *testing.T) {
 }
 
 func TestParseSlotsDecoded(t *testing.T) {
-	s, err := ParseSlots([]byte(`[{"id":0,"is_processing":true,"n_ctx":131072,"n_prompt_tokens":697,"n_prompt_tokens_cache":0,"n_prompt_tokens_processed":697,"next_token":[{"has_next_token":true,"n_remain":851,"n_decoded":49}]}]`))
-	if err != nil || s.NDecoded != 49 || !s.Processing {
+	s, err := ParseSlots([]byte(`[{"id":0,"is_processing":true,"id_task":861,"n_ctx":131072,"n_prompt_tokens":697,"n_prompt_tokens_cache":0,"n_prompt_tokens_processed":697,"next_token":[{"has_next_token":true,"n_remain":851,"n_decoded":49}]}]`))
+	if err != nil || s.ID != 0 || s.Task != 861 || s.NDecoded != 49 || !s.Processing {
+		t.Fatalf("got %+v, %v", s, err)
+	}
+}
+
+func TestParseSlotsPrefillIDs(t *testing.T) {
+	s, err := ParseSlots(fixture(t, "slots-prefill.json"))
+	if err != nil || s.ID != 0 || s.Task != 506 || s.NPrompt != 24125 || s.NProcessed != 22528 {
 		t.Fatalf("got %+v, %v", s, err)
 	}
 }
