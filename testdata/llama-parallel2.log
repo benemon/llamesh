@@ -1,0 +1,574 @@
+0.41.169.388 I srv  update_slots: all slots are idle
+0.41.176.002 I srv  update_slots: all slots are idle
+0.41.198.027 I srv  update_slots: all slots are idle
+0.41.198.672 I srv  update_slots: all slots are idle
+0.42.197.727 I srv  update_slots: all slots are idle
+0.42.199.367 I srv  update_slots: all slots are idle
+0.42.262.452 I srv  update_slots: all slots are idle
+0.42.270.573 I srv  update_slots: all slots are idle
+0.43.197.665 I srv  update_slots: all slots are idle
+0.43.198.612 I srv  update_slots: all slots are idle
+0.43.362.322 I srv  update_slots: all slots are idle
+0.43.370.738 I srv  update_slots: all slots are idle
+0.44.198.300 I srv  update_slots: all slots are idle
+0.44.199.512 I srv  update_slots: all slots are idle
+0.44.465.933 I srv  update_slots: all slots are idle
+0.44.475.120 I srv  update_slots: all slots are idle
+0.45.197.191 I srv  update_slots: all slots are idle
+0.45.198.168 I srv  update_slots: all slots are idle
+0.45.566.124 I srv  update_slots: all slots are idle
+0.45.574.517 I srv  update_slots: all slots are idle
+0.45.603.360 I srv  update_slots: all slots are idle
+0.45.925.837 I srv  server_strea: conv_id= (empty=1)
+0.45.934.565 I srv  server_strea: conv_id= (empty=1)
+0.45.934.603 I srv  server_strea: conv_id= (empty=1)
+0.45.935.645 I srv    operator(): chat format: peg-native
+0.45.935.924 I slot get_availabl: id  0 | task -1 |  - skipping, slot is empty
+0.45.935.927 I slot get_availabl: id  1 | task -1 |  - skipping, slot is empty
+0.45.935.928 I slot get_availabl: id  1 | task -1 | selected slot by LRU, t_last = -1
+0.45.935.929 I srv  get_availabl: updating prompt cache
+0.45.935.936 I srv          load:  - looking for better prompt, base f_keep = -1.000, f_sim = 0.000
+0.45.935.942 I srv        update:  - cache state: 0 prompts, 0.000 MiB (limits: 8192.000 MiB, 163840 tokens, 8589934592 est)
+0.45.935.947 I srv  get_availabl: prompt cache update took 0.02 ms
+0.45.936.051 I slot launch_slot_: id  1 | task -1 | sampler chain: logits -> ?penalties -> ?dry -> ?top-n-sigma -> top-k -> ?typical -> top-p -> min-p -> ?xtc -> temp-ext -> dist 
+0.45.936.060 I slot launch_slot_: id  1 | task -1 | sampler params: 
+	repeat_last_n = 64, repeat_penalty = 1.000, frequency_penalty = 0.000, presence_penalty = 0.000
+	dry_multiplier = 0.000, dry_base = 1.750, dry_allowed_length = 2, dry_penalty_last_n = 64
+	top_k = 20, top_p = 0.800, min_p = 0.050, xtc_probability = 0.000, xtc_threshold = 0.100, typical_p = 1.000, top_n_sigma = -1.000, temp = 0.700
+	mirostat = 0, mirostat_lr = 0.100, mirostat_ent = 5.000, adaptive_target = -1.000, adaptive_decay = 0.900
+0.45.936.062 I slot launch_slot_: id  1 | task 64 | processing task, is_child = 0
+0.45.936.064 I slot process_sing: id  0 | task -1 | saving idle slot to prompt cache
+0.45.936.099 I slot   operator(): id  1 | task 64 | new prompt, n_ctx_slot = 81920, n_keep = 0, task.n_tokens = 4180
+0.45.936.111 I slot   operator(): id  1 | task 64 | cached n_tokens = 0, memory_seq_rm [0, end)
+0.45.941.198 I srv    operator(): chat format: peg-native
+0.45.941.227 I srv    operator(): chat format: peg-native
+1.02.058.115 I slot get_availabl: id  0 | task -1 |  - skipping, slot is empty
+1.02.058.117 I slot get_availabl: id  1 | task 64 |  - skipping, is_processing = 1
+1.02.058.118 I slot get_availabl: id  0 | task -1 | selected slot by LRU, t_last = -1
+1.02.058.118 I srv  get_availabl: updating prompt cache
+1.02.058.120 I srv          load:  - looking for better prompt, base f_keep = -1.000, f_sim = 0.000
+1.02.058.121 I srv        update:  - cache state: 0 prompts, 0.000 MiB (limits: 8192.000 MiB, 163840 tokens, 8589934592 est)
+1.02.058.121 I srv  get_availabl: prompt cache update took 0.00 ms
+1.02.058.163 I slot launch_slot_: id  0 | task -1 | sampler chain: logits -> ?penalties -> ?dry -> ?top-n-sigma -> top-k -> ?typical -> top-p -> min-p -> ?xtc -> temp-ext -> dist 
+1.02.058.167 I slot launch_slot_: id  0 | task -1 | sampler params: 
+	repeat_last_n = 64, repeat_penalty = 1.000, frequency_penalty = 0.000, presence_penalty = 0.000
+	dry_multiplier = 0.000, dry_base = 1.750, dry_allowed_length = 2, dry_penalty_last_n = 64
+	top_k = 20, top_p = 0.800, min_p = 0.050, xtc_probability = 0.000, xtc_threshold = 0.100, typical_p = 1.000, top_n_sigma = -1.000, temp = 0.700
+	mirostat = 0, mirostat_lr = 0.100, mirostat_ent = 5.000, adaptive_target = -1.000, adaptive_decay = 0.900
+1.02.058.168 I slot launch_slot_: id  0 | task 66 | processing task, is_child = 0
+1.02.058.168 I slot get_availabl: id  0 | task 66 |  - skipping, is_processing = 1
+1.02.058.168 I slot get_availabl: id  1 | task 64 |  - skipping, is_processing = 1
+1.02.058.172 I slot   operator(): id  0 | task 66 | new prompt, n_ctx_slot = 81920, n_keep = 0, task.n_tokens = 4180
+1.02.058.177 I slot   operator(): id  0 | task 66 | cached n_tokens = 0, memory_seq_rm [0, end)
+1.18.208.449 I slot print_timing: id  0 | task 66 | prompt processing, n_tokens =   2048, progress = 0.49, t =  11.94 s / 171.54 tokens per second
+1.18.208.452 I slot   operator(): id  0 | task 66 | cached n_tokens = 2048, memory_seq_rm [2048, end)
+1.18.208.521 I slot print_timing: id  1 | task 64 | prompt processing, n_tokens =   2048, progress = 0.49, t =  11.91 s / 172.02 tokens per second
+1.18.208.522 I slot   operator(): id  1 | task 64 | cached n_tokens = 2048, memory_seq_rm [2048, end)
+1.35.334.619 I slot print_timing: id  0 | task 66 | prompt processing, n_tokens =   3664, progress = 0.88, t =  31.62 s / 115.87 tokens per second
+1.35.334.621 I slot   operator(): id  0 | task 66 | cached n_tokens = 3664, memory_seq_rm [3664, end)
+1.35.360.031 I slot create_check: id  0 | task 66 | created context checkpoint 1 of 32 (pos_min = 3663, pos_max = 3663, n_tokens = 3664, size = 164.009 MiB)
+1.35.360.035 I slot print_timing: id  1 | task 64 | prompt processing, n_tokens =   2480, progress = 0.59, t =  47.74 s / 51.94 tokens per second
+1.35.360.035 I slot   operator(): id  1 | task 64 | cached n_tokens = 2480, memory_seq_rm [2480, end)
+1.50.044.832 I slot print_timing: id  0 | task 66 | prompt processing, n_tokens =   4176, progress = 1.00, t =  46.36 s / 90.07 tokens per second
+1.50.044.834 I slot   operator(): id  0 | task 66 | cached n_tokens = 4176, memory_seq_rm [4176, end)
+1.50.045.215 I slot init_sampler: id  0 | task 66 | init sampler, took 0.32 ms, tokens: text = 4180, total = 4180
+1.50.070.355 I slot create_check: id  0 | task 66 | created context checkpoint 2 of 32 (pos_min = 4175, pos_max = 4175, n_tokens = 4176, size = 166.018 MiB)
+1.50.070.358 I slot print_timing: id  1 | task 64 | prompt processing, n_tokens =   3664, progress = 0.88, t =  62.48 s / 58.64 tokens per second
+1.50.070.359 I slot   operator(): id  1 | task 64 | cached n_tokens = 3664, memory_seq_rm [3664, end)
+1.50.080.115 I slot create_check: id  1 | task 64 | created context checkpoint 1 of 32 (pos_min = 3663, pos_max = 3663, n_tokens = 3664, size = 164.009 MiB)
+1.55.053.416 I slot print_timing: id  1 | task 64 | prompt processing, n_tokens =   4176, progress = 1.00, t =  69.01 s / 60.51 tokens per second
+1.55.053.418 I slot   operator(): id  1 | task 64 | cached n_tokens = 4176, memory_seq_rm [4176, end)
+1.55.053.795 I slot init_sampler: id  1 | task 64 | init sampler, took 0.32 ms, tokens: text = 4180, total = 4180
+1.55.063.826 I slot create_check: id  1 | task 64 | created context checkpoint 2 of 32 (pos_min = 4175, pos_max = 4175, n_tokens = 4176, size = 166.018 MiB)
+2.11.606.796 I slot print_timing: id  0 | task 66 | n_gen =    102, tg =   6.07 t/s, tg_3s =   6.13 t/s
+2.13.303.244 I slot print_timing: id  1 | task 64 | n_gen =    101, tg =   5.62 t/s, tg_3s =   5.67 t/s
+2.14.997.177 I slot print_timing: id  0 | task 66 | n_gen =    121, tg =   5.99 t/s, tg_3s =   5.60 t/s
+2.16.692.094 I slot print_timing: id  1 | task 64 | n_gen =    121, tg =   5.66 t/s, tg_3s =   5.90 t/s
+2.18.387.409 I slot print_timing: id  0 | task 66 | prompt eval time =   52898.59 ms /  4180 tokens (   12.66 ms per token,    79.02 tokens per second)
+2.18.387.412 I slot print_timing: id  0 | task 66 |        eval time =   23430.58 ms /   141 tokens (  167.36 ms per token,     5.98 tokens per second)
+2.18.387.412 I slot print_timing: id  0 | task 66 |       total time =   76329.17 ms /  4321 tokens
+2.18.387.413 I slot print_timing: id  0 | task 66 |    graphs reused =         54
+2.18.387.414 I slot print_timing: id  0 | task 66 | draft acceptance = 0.77273 (   85 accepted /   110 generated), mean len =  2.55
+2.18.387.415 I slot print_timing: id  0 | task 66 |      acc per pos = (0.873, 0.673)
+2.18.387.421 I spec common_specu: statistics        draft-mtp: #calls(b,g,a) =    2     55    108, #gen drafts =    109, #acc drafts =    89, #gen tokens =    218, #acc tokens =   161, #mean acc len = 2.49, #acc rate/pos = (0.824, 0.667), dur(b,g,a) = 0.004, 1255.931, 0.096 ms
+2.18.387.488 I slot      release: id  0 | task 66 | stop processing: n_tokens = 4320, truncated = 0
+2.18.387.740 I slot get_availabl: id  0 | task -1 |  - checking sim = 0.001 (6/4180) > 0.100
+2.18.387.742 I slot get_availabl: id  1 | task 64 |  - skipping, is_processing = 1
+2.18.387.742 I slot get_availabl: id  0 | task -1 | selected slot by LRU, t_last = 409497154553
+2.18.387.743 I srv  get_availabl: updating prompt cache
+2.18.388.143 I srv   prompt_save:  - saving prompt with length 4320, total state size = 310.104 MiB (draft: 16.957 MiB)
+2.18.421.963 I srv          load:  - looking for better prompt, base f_keep = 0.001, f_sim = 0.001
+2.18.421.966 I srv          load:    - prompt with length    4320, lcp =       6, f_keep = 0.001, f_sim = 0.001
+2.18.421.968 I srv        update:  - cache state: 1 prompts, 640.131 MiB (limits: 8192.000 MiB, 163840 tokens, 163840 est)
+2.18.421.969 I srv        update:    - prompt 0x79a0c03c10:    4320 tokens, checkpoints:  2,   640.131 MiB
+2.18.421.969 I srv  get_availabl: prompt cache update took 34.23 ms
+2.18.422.020 I slot launch_slot_: id  0 | task -1 | sampler chain: logits -> ?penalties -> ?dry -> ?top-n-sigma -> top-k -> ?typical -> top-p -> min-p -> ?xtc -> temp-ext -> dist 
+2.18.422.024 I slot launch_slot_: id  0 | task -1 | sampler params: 
+	repeat_last_n = 64, repeat_penalty = 1.000, frequency_penalty = 0.000, presence_penalty = 0.000
+	dry_multiplier = 0.000, dry_base = 1.750, dry_allowed_length = 2, dry_penalty_last_n = 64
+	top_k = 20, top_p = 0.800, min_p = 0.050, xtc_probability = 0.000, xtc_threshold = 0.100, typical_p = 1.000, top_n_sigma = -1.000, temp = 0.700
+	mirostat = 0, mirostat_lr = 0.100, mirostat_ent = 5.000, adaptive_target = -1.000, adaptive_decay = 0.900
+2.18.422.025 I slot launch_slot_: id  0 | task 67 | processing task, is_child = 0
+2.18.437.971 I slot   operator(): id  0 | task 67 | new prompt, n_ctx_slot = 81920, n_keep = 0, task.n_tokens = 4180
+2.18.437.974 I slot   operator(): id  0 | task 67 | checking checkpoint with [4175, 4175] against 6...
+2.18.437.974 I slot   operator(): id  0 | task 67 | checking checkpoint with [3663, 3663] against 6...
+2.18.437.975 I slot   operator(): id  0 | task 67 | forcing full prompt re-processing due to lack of cache data (likely due to SWA or hybrid/recurrent memory, see https://github.com/ggml-org/llama.cpp/pull/13194#issuecomment-2868343055)
+2.18.437.976 I slot   operator(): id  0 | task 67 | erased invalidated context checkpoint (pos_min = 3663, pos_max = 3663, n_tokens = 3664, n_swa = 0, pos_next = 0, size = 164.009 MiB)
+2.18.437.978 I slot   operator(): id  0 | task 67 | erased invalidated context checkpoint (pos_min = 4175, pos_max = 4175, n_tokens = 4176, n_swa = 0, pos_next = 0, size = 166.018 MiB)
+2.18.437.982 I slot   operator(): id  0 | task 67 | cached n_tokens = 0, memory_seq_rm [0, end)
+2.35.741.985 I slot print_timing: id  1 | task 64 | n_gen =    132, tg =   3.25 t/s, tg_3s =   0.58 t/s
+2.35.832.833 I slot print_timing: id  0 | task 67 | prompt processing, n_tokens =   2045, progress = 0.49, t =  17.07 s / 119.78 tokens per second
+2.35.832.836 I slot   operator(): id  0 | task 67 | cached n_tokens = 2045, memory_seq_rm [2045, end)
+2.50.070.822 I slot print_timing: id  1 | task 64 | n_gen =    135, tg =   2.46 t/s, tg_3s =   0.21 t/s
+2.50.100.843 I slot print_timing: id  0 | task 67 | prompt processing, n_tokens =   3664, progress = 0.88, t =  31.39 s / 116.73 tokens per second
+2.50.100.844 I slot   operator(): id  0 | task 67 | cached n_tokens = 3664, memory_seq_rm [3664, end)
+2.50.104.898 I slot create_check: id  0 | task 67 | created context checkpoint 1 of 32 (pos_min = 3663, pos_max = 3663, n_tokens = 3664, size = 164.009 MiB)
+2.54.641.951 I slot print_timing: id  1 | task 64 | n_gen =    138, tg =   2.32 t/s, tg_3s =   0.66 t/s
+2.54.738.325 I slot print_timing: id  0 | task 67 | prompt processing, n_tokens =   4176, progress = 1.00, t =  36.20 s / 115.37 tokens per second
+2.54.738.327 I slot   operator(): id  0 | task 67 | cached n_tokens = 4176, memory_seq_rm [4176, end)
+2.54.738.703 I slot init_sampler: id  0 | task 67 | init sampler, took 0.32 ms, tokens: text = 4180, total = 4180
+2.54.743.621 I slot create_check: id  0 | task 67 | created context checkpoint 2 of 32 (pos_min = 4175, pos_max = 4175, n_tokens = 4176, size = 166.018 MiB)
+2.57.711.406 I slot print_timing: id  1 | task 64 | n_gen =    151, tg =   2.41 t/s, tg_3s =   4.24 t/s
+3.01.100.919 I slot print_timing: id  1 | task 64 | n_gen =    166, tg =   2.51 t/s, tg_3s =   4.43 t/s
+3.04.493.048 I slot print_timing: id  1 | task 64 | n_gen =    184, tg =   2.65 t/s, tg_3s =   5.31 t/s
+3.04.917.814 I slot print_timing: id  1 | task 64 | prompt eval time =   69557.81 ms /  4180 tokens (   16.64 ms per token,    60.09 tokens per second)
+3.04.917.817 I slot print_timing: id  1 | task 64 |        eval time =   69423.85 ms /   185 tokens (  377.30 ms per token,     2.65 tokens per second)
+3.04.917.818 I slot print_timing: id  1 | task 64 |       total time =  138981.66 ms /  4365 tokens
+3.04.917.818 I slot print_timing: id  1 | task 64 |    graphs reused =         75
+3.04.917.820 I slot print_timing: id  1 | task 64 | draft acceptance = 0.64815 (  105 accepted /   162 generated), mean len =  2.30
+3.04.917.821 I slot print_timing: id  1 | task 64 |      acc per pos = (0.716, 0.580)
+3.04.917.827 I spec common_specu: statistics        draft-mtp: #calls(b,g,a) =    3     82    159, #gen drafts =    159, #acc drafts =   125, #gen tokens =    318, #acc tokens =   224, #mean acc len = 2.41, #acc rate/pos = (0.786, 0.623), dur(b,g,a) = 0.005, 1985.322, 0.142 ms
+3.04.917.892 I slot      release: id  1 | task 64 | stop processing: n_tokens = 4366, truncated = 0
+3.08.551.810 I slot print_timing: id  0 | task 67 | n_gen =    100, tg =   7.40 t/s, tg_3s =   7.47 t/s
+3.11.581.822 I slot print_timing: id  0 | task 67 | n_gen =    135, tg =   8.16 t/s, tg_3s =  11.55 t/s
+3.14.609.195 I slot print_timing: id  0 | task 67 | prompt eval time =   36728.96 ms /  4180 tokens (    8.79 ms per token,   113.81 tokens per second)
+3.14.609.197 I slot print_timing: id  0 | task 67 |        eval time =   19442.20 ms /   165 tokens (  118.55 ms per token,     8.44 tokens per second)
+3.14.609.198 I slot print_timing: id  0 | task 67 |       total time =   56171.16 ms /  4345 tokens
+3.14.609.198 I slot print_timing: id  0 | task 67 |    graphs reused =        122
+3.14.609.200 I slot print_timing: id  0 | task 67 | draft acceptance = 0.65493 (   93 accepted /   142 generated), mean len =  2.31
+3.14.609.201 I slot print_timing: id  0 | task 67 |      acc per pos = (0.775, 0.535)
+3.14.609.207 I spec common_specu: statistics        draft-mtp: #calls(b,g,a) =    3    130    207, #gen drafts =    207, #acc drafts =   161, #gen tokens =    414, #acc tokens =   283, #mean acc len = 2.37, #acc rate/pos = (0.778, 0.589), dur(b,g,a) = 0.005, 2853.811, 0.194 ms
+3.14.609.270 I slot      release: id  0 | task 67 | stop processing: n_tokens = 4344, truncated = 0
+3.14.609.276 I srv  update_slots: all slots are idle
+3.14.841.141 I srv  update_slots: all slots are idle
+3.14.849.386 I srv  update_slots: all slots are idle
+3.15.201.389 I srv  update_slots: all slots are idle
+3.15.202.363 I srv  update_slots: all slots are idle
+3.15.929.296 I srv  update_slots: all slots are idle
+3.15.938.357 I srv  update_slots: all slots are idle
+3.16.200.893 I srv  update_slots: all slots are idle
+3.16.203.560 I srv  update_slots: all slots are idle
+3.17.040.213 I srv  update_slots: all slots are idle
+3.17.048.475 I srv  update_slots: all slots are idle
+3.17.201.459 I srv  update_slots: all slots are idle
+3.17.202.459 I srv  update_slots: all slots are idle
+3.18.137.859 I srv  update_slots: all slots are idle
+3.18.146.373 I srv  update_slots: all slots are idle
+3.18.243.051 I srv  update_slots: all slots are idle
+3.18.243.617 I srv  update_slots: all slots are idle
+3.19.201.396 I srv  update_slots: all slots are idle
+3.19.201.896 I srv  update_slots: all slots are idle
+3.19.244.401 I srv  update_slots: all slots are idle
+3.19.252.970 I srv  update_slots: all slots are idle
+3.20.201.622 I srv  update_slots: all slots are idle
+3.20.202.685 I srv  update_slots: all slots are idle
+3.20.352.021 I srv  update_slots: all slots are idle
+3.20.360.808 I srv  update_slots: all slots are idle
+3.21.201.650 I srv  update_slots: all slots are idle
+3.21.202.628 I srv  update_slots: all slots are idle
+3.21.453.906 I srv  update_slots: all slots are idle
+3.21.462.591 I srv  update_slots: all slots are idle
+3.22.201.746 I srv  update_slots: all slots are idle
+3.22.202.849 I srv  update_slots: all slots are idle
+3.22.564.856 I srv  update_slots: all slots are idle
+3.22.573.341 I srv  update_slots: all slots are idle
+3.23.201.232 I srv  update_slots: all slots are idle
+3.23.202.494 I srv  update_slots: all slots are idle
+3.23.662.211 I srv  update_slots: all slots are idle
+3.23.670.410 I srv  update_slots: all slots are idle
+3.24.201.852 I srv  update_slots: all slots are idle
+3.24.202.805 I srv  update_slots: all slots are idle
+3.24.771.115 I srv  update_slots: all slots are idle
+3.24.779.572 I srv  update_slots: all slots are idle
+3.25.201.911 I srv  update_slots: all slots are idle
+3.25.202.815 I srv  update_slots: all slots are idle
+3.25.875.709 I srv  update_slots: all slots are idle
+3.25.884.330 I srv  update_slots: all slots are idle
+3.26.201.866 I srv  update_slots: all slots are idle
+3.26.203.310 I srv  update_slots: all slots are idle
+3.26.976.810 I srv  update_slots: all slots are idle
+3.26.984.902 I srv  update_slots: all slots are idle
+3.27.200.690 I srv  update_slots: all slots are idle
+3.27.201.719 I srv  update_slots: all slots are idle
+3.28.074.535 I srv  update_slots: all slots are idle
+3.28.082.778 I srv  update_slots: all slots are idle
+3.28.241.951 I srv  update_slots: all slots are idle
+3.28.242.810 I srv  update_slots: all slots are idle
+3.29.175.796 I srv  update_slots: all slots are idle
+3.29.184.224 I srv  update_slots: all slots are idle
+3.29.201.718 I srv  update_slots: all slots are idle
+3.29.202.460 I srv  update_slots: all slots are idle
+3.30.201.459 I srv  update_slots: all slots are idle
+3.30.202.524 I srv  update_slots: all slots are idle
+3.30.283.138 I srv  update_slots: all slots are idle
+3.30.291.899 I srv  update_slots: all slots are idle
+3.31.201.483 I srv  update_slots: all slots are idle
+3.31.202.486 I srv  update_slots: all slots are idle
+3.31.385.121 I srv  update_slots: all slots are idle
+3.31.394.010 I srv  update_slots: all slots are idle
+3.32.202.185 I srv  update_slots: all slots are idle
+3.32.204.854 I srv  update_slots: all slots are idle
+3.32.484.600 I srv  update_slots: all slots are idle
+3.32.493.240 I srv  update_slots: all slots are idle
+3.33.202.227 I srv  update_slots: all slots are idle
+3.33.203.438 I srv  update_slots: all slots are idle
+3.33.584.426 I srv  update_slots: all slots are idle
+3.33.593.237 I srv  update_slots: all slots are idle
+3.34.202.024 I srv  update_slots: all slots are idle
+3.34.203.125 I srv  update_slots: all slots are idle
+3.34.686.919 I srv  update_slots: all slots are idle
+3.34.695.335 I srv  update_slots: all slots are idle
+3.35.202.024 I srv  update_slots: all slots are idle
+3.35.203.122 I srv  update_slots: all slots are idle
+3.35.792.411 I srv  update_slots: all slots are idle
+3.35.800.776 I srv  update_slots: all slots are idle
+3.36.201.613 I srv  update_slots: all slots are idle
+3.36.202.652 I srv  update_slots: all slots are idle
+3.36.900.422 I srv  update_slots: all slots are idle
+3.36.909.139 I srv  update_slots: all slots are idle
+3.37.202.075 I srv  update_slots: all slots are idle
+3.37.203.003 I srv  update_slots: all slots are idle
+3.37.996.300 I srv  update_slots: all slots are idle
+3.38.004.927 I srv  update_slots: all slots are idle
+3.38.246.814 I srv  update_slots: all slots are idle
+3.38.247.590 I srv  update_slots: all slots are idle
+3.39.105.175 I srv  update_slots: all slots are idle
+3.39.114.114 I srv  update_slots: all slots are idle
+3.39.202.330 I srv  update_slots: all slots are idle
+3.39.204.538 I srv  update_slots: all slots are idle
+3.40.202.055 I srv  update_slots: all slots are idle
+3.40.203.092 I srv  update_slots: all slots are idle
+3.40.213.200 I srv  update_slots: all slots are idle
+3.40.221.907 I srv  update_slots: all slots are idle
+3.41.201.177 I srv  update_slots: all slots are idle
+3.41.202.452 I srv  update_slots: all slots are idle
+3.41.318.948 I srv  update_slots: all slots are idle
+3.41.327.923 I srv  update_slots: all slots are idle
+3.42.201.775 I srv  update_slots: all slots are idle
+3.42.203.076 I srv  update_slots: all slots are idle
+3.42.430.056 I srv  update_slots: all slots are idle
+3.42.438.643 I srv  update_slots: all slots are idle
+3.43.202.198 I srv  update_slots: all slots are idle
+3.43.203.241 I srv  update_slots: all slots are idle
+3.43.531.087 I srv  update_slots: all slots are idle
+3.43.539.673 I srv  update_slots: all slots are idle
+3.44.202.275 I srv  update_slots: all slots are idle
+3.44.203.440 I srv  update_slots: all slots are idle
+3.44.625.275 I srv  update_slots: all slots are idle
+3.44.634.490 I srv  update_slots: all slots are idle
+3.45.201.098 I srv  update_slots: all slots are idle
+3.45.201.973 I srv  update_slots: all slots are idle
+3.45.731.864 I srv  update_slots: all slots are idle
+3.45.741.671 I srv  update_slots: all slots are idle
+3.46.201.784 I srv  update_slots: all slots are idle
+3.46.202.908 I srv  update_slots: all slots are idle
+3.46.833.663 I srv  update_slots: all slots are idle
+3.46.842.088 I srv  update_slots: all slots are idle
+3.47.202.070 I srv  update_slots: all slots are idle
+3.47.202.802 I srv  update_slots: all slots are idle
+3.47.930.332 I srv  update_slots: all slots are idle
+3.47.938.762 I srv  update_slots: all slots are idle
+3.48.244.585 I srv  update_slots: all slots are idle
+3.48.245.107 I srv  update_slots: all slots are idle
+3.49.036.328 I srv  update_slots: all slots are idle
+3.49.044.773 I srv  update_slots: all slots are idle
+3.49.202.248 I srv  update_slots: all slots are idle
+3.49.203.254 I srv  update_slots: all slots are idle
+3.50.140.419 I srv  update_slots: all slots are idle
+3.50.148.790 I srv  update_slots: all slots are idle
+3.50.201.733 I srv  update_slots: all slots are idle
+3.50.202.807 I srv  update_slots: all slots are idle
+3.51.202.322 I srv  update_slots: all slots are idle
+3.51.203.285 I srv  update_slots: all slots are idle
+3.51.241.277 I srv  update_slots: all slots are idle
+3.51.249.887 I srv  update_slots: all slots are idle
+3.52.202.330 I srv  update_slots: all slots are idle
+3.52.203.345 I srv  update_slots: all slots are idle
+3.52.349.679 I srv  update_slots: all slots are idle
+3.52.358.002 I srv  update_slots: all slots are idle
+3.53.201.981 I srv  update_slots: all slots are idle
+3.53.203.475 I srv  update_slots: all slots are idle
+3.53.447.690 I srv  update_slots: all slots are idle
+3.53.457.462 I srv  update_slots: all slots are idle
+3.54.201.867 I srv  update_slots: all slots are idle
+3.54.203.143 I srv  update_slots: all slots are idle
+3.54.556.925 I srv  update_slots: all slots are idle
+3.54.565.341 I srv  update_slots: all slots are idle
+3.55.201.362 I srv  update_slots: all slots are idle
+3.55.202.430 I srv  update_slots: all slots are idle
+3.55.669.202 I srv  update_slots: all slots are idle
+3.55.677.672 I srv  update_slots: all slots are idle
+3.56.202.472 I srv  update_slots: all slots are idle
+3.56.203.773 I srv  update_slots: all slots are idle
+3.56.769.373 I srv  update_slots: all slots are idle
+3.56.778.119 I srv  update_slots: all slots are idle
+3.57.202.377 I srv  update_slots: all slots are idle
+3.57.203.342 I srv  update_slots: all slots are idle
+3.57.874.185 I srv  update_slots: all slots are idle
+3.57.882.557 I srv  update_slots: all slots are idle
+3.58.244.426 I srv  update_slots: all slots are idle
+3.58.245.019 I srv  update_slots: all slots are idle
+3.58.976.096 I srv  update_slots: all slots are idle
+3.58.984.792 I srv  update_slots: all slots are idle
+3.59.201.970 I srv  update_slots: all slots are idle
+3.59.202.964 I srv  update_slots: all slots are idle
+4.00.080.764 I srv  update_slots: all slots are idle
+4.00.089.383 I srv  update_slots: all slots are idle
+4.00.202.405 I srv  update_slots: all slots are idle
+4.00.203.359 I srv  update_slots: all slots are idle
+4.01.191.169 I srv  update_slots: all slots are idle
+4.01.199.723 I srv  update_slots: all slots are idle
+4.01.200.357 I srv  update_slots: all slots are idle
+4.01.200.880 I srv  update_slots: all slots are idle
+4.02.202.580 I srv  update_slots: all slots are idle
+4.02.203.827 I srv  update_slots: all slots are idle
+4.02.295.110 I srv  update_slots: all slots are idle
+4.02.303.497 I srv  update_slots: all slots are idle
+4.03.202.532 I srv  update_slots: all slots are idle
+4.03.203.460 I srv  update_slots: all slots are idle
+4.03.403.043 I srv  update_slots: all slots are idle
+4.03.411.678 I srv  update_slots: all slots are idle
+4.04.202.418 I srv  update_slots: all slots are idle
+4.04.203.450 I srv  update_slots: all slots are idle
+4.04.515.766 I srv  update_slots: all slots are idle
+4.04.524.408 I srv  update_slots: all slots are idle
+4.05.202.470 I srv  update_slots: all slots are idle
+4.05.203.715 I srv  update_slots: all slots are idle
+4.05.613.724 I srv  update_slots: all slots are idle
+4.05.622.281 I srv  update_slots: all slots are idle
+4.06.201.946 I srv  update_slots: all slots are idle
+4.06.202.917 I srv  update_slots: all slots are idle
+4.06.717.458 I srv  update_slots: all slots are idle
+4.06.726.126 I srv  update_slots: all slots are idle
+4.07.202.538 I srv  update_slots: all slots are idle
+4.07.203.795 I srv  update_slots: all slots are idle
+4.07.826.290 I srv  update_slots: all slots are idle
+4.07.834.753 I srv  update_slots: all slots are idle
+4.08.246.262 I srv  update_slots: all slots are idle
+4.08.246.911 I srv  update_slots: all slots are idle
+4.08.933.068 I srv  update_slots: all slots are idle
+4.08.941.781 I srv  update_slots: all slots are idle
+4.09.202.468 I srv  update_slots: all slots are idle
+4.09.203.483 I srv  update_slots: all slots are idle
+4.10.032.207 I srv  update_slots: all slots are idle
+4.10.040.823 I srv  update_slots: all slots are idle
+4.10.201.499 I srv  update_slots: all slots are idle
+4.10.202.553 I srv  update_slots: all slots are idle
+4.11.138.923 I srv  update_slots: all slots are idle
+4.11.147.487 I srv  update_slots: all slots are idle
+4.11.202.485 I srv  update_slots: all slots are idle
+4.11.203.518 I srv  update_slots: all slots are idle
+4.12.202.301 I srv  update_slots: all slots are idle
+4.12.202.785 I srv  update_slots: all slots are idle
+4.12.241.941 I srv  update_slots: all slots are idle
+4.12.250.666 I srv  update_slots: all slots are idle
+4.13.202.562 I srv  update_slots: all slots are idle
+4.13.203.576 I srv  update_slots: all slots are idle
+4.13.341.900 I srv  update_slots: all slots are idle
+4.13.350.396 I srv  update_slots: all slots are idle
+4.14.202.552 I srv  update_slots: all slots are idle
+4.14.203.957 I srv  update_slots: all slots are idle
+4.14.449.292 I srv  update_slots: all slots are idle
+4.14.458.059 I srv  update_slots: all slots are idle
+4.15.202.076 I srv  update_slots: all slots are idle
+4.15.203.057 I srv  update_slots: all slots are idle
+4.15.554.756 I srv  update_slots: all slots are idle
+4.15.563.280 I srv  update_slots: all slots are idle
+4.16.202.560 I srv  update_slots: all slots are idle
+4.16.203.916 I srv  update_slots: all slots are idle
+4.16.658.161 I srv  update_slots: all slots are idle
+4.16.666.560 I srv  update_slots: all slots are idle
+4.17.202.588 I srv  update_slots: all slots are idle
+4.17.203.853 I srv  update_slots: all slots are idle
+4.17.766.145 I srv  update_slots: all slots are idle
+4.17.774.908 I srv  update_slots: all slots are idle
+4.18.244.591 I srv  update_slots: all slots are idle
+4.18.245.390 I srv  update_slots: all slots are idle
+4.18.865.093 I srv  update_slots: all slots are idle
+4.18.873.574 I srv  update_slots: all slots are idle
+4.19.202.572 I srv  update_slots: all slots are idle
+4.19.203.573 I srv  update_slots: all slots are idle
+4.19.971.470 I srv  update_slots: all slots are idle
+4.19.979.665 I srv  update_slots: all slots are idle
+4.20.202.778 I srv  update_slots: all slots are idle
+4.20.203.833 I srv  update_slots: all slots are idle
+4.21.067.329 I srv  update_slots: all slots are idle
+4.21.075.810 I srv  update_slots: all slots are idle
+4.21.202.600 I srv  update_slots: all slots are idle
+4.21.203.974 I srv  update_slots: all slots are idle
+4.22.176.583 I srv  update_slots: all slots are idle
+4.22.185.277 I srv  update_slots: all slots are idle
+4.22.202.251 I srv  update_slots: all slots are idle
+4.22.202.823 I srv  update_slots: all slots are idle
+4.23.202.164 I srv  update_slots: all slots are idle
+4.23.203.424 I srv  update_slots: all slots are idle
+4.23.285.395 I srv  update_slots: all slots are idle
+4.23.294.110 I srv  update_slots: all slots are idle
+4.24.202.120 I srv  update_slots: all slots are idle
+4.24.203.096 I srv  update_slots: all slots are idle
+4.24.385.118 I srv  update_slots: all slots are idle
+4.24.393.691 I srv  update_slots: all slots are idle
+4.25.202.566 I srv  update_slots: all slots are idle
+4.25.203.592 I srv  update_slots: all slots are idle
+4.25.486.388 I srv  update_slots: all slots are idle
+4.25.495.035 I srv  update_slots: all slots are idle
+4.26.202.368 I srv  update_slots: all slots are idle
+4.26.203.347 I srv  update_slots: all slots are idle
+4.26.590.703 I srv  update_slots: all slots are idle
+4.26.599.137 I srv  update_slots: all slots are idle
+4.27.201.842 I srv  update_slots: all slots are idle
+4.27.202.827 I srv  update_slots: all slots are idle
+4.27.689.735 I srv  update_slots: all slots are idle
+4.27.698.047 I srv  update_slots: all slots are idle
+4.28.244.660 I srv  update_slots: all slots are idle
+4.28.245.366 I srv  update_slots: all slots are idle
+4.28.793.826 I srv  update_slots: all slots are idle
+4.28.802.076 I srv  update_slots: all slots are idle
+4.29.202.222 I srv  update_slots: all slots are idle
+4.29.204.189 I srv  update_slots: all slots are idle
+4.29.899.690 I srv  update_slots: all slots are idle
+4.29.908.387 I srv  update_slots: all slots are idle
+4.30.202.291 I srv  update_slots: all slots are idle
+4.30.203.366 I srv  update_slots: all slots are idle
+4.31.004.394 I srv  update_slots: all slots are idle
+4.31.012.947 I srv  update_slots: all slots are idle
+4.31.202.292 I srv  update_slots: all slots are idle
+4.31.203.339 I srv  update_slots: all slots are idle
+4.32.112.834 I srv  update_slots: all slots are idle
+4.32.121.251 I srv  update_slots: all slots are idle
+4.32.202.228 I srv  update_slots: all slots are idle
+4.32.204.002 I srv  update_slots: all slots are idle
+4.33.202.830 I srv  update_slots: all slots are idle
+4.33.204.319 I srv  update_slots: all slots are idle
+4.33.217.152 I srv  update_slots: all slots are idle
+4.33.226.093 I srv  update_slots: all slots are idle
+4.34.202.220 I srv  update_slots: all slots are idle
+4.34.203.335 I srv  update_slots: all slots are idle
+4.34.313.712 I srv  update_slots: all slots are idle
+4.34.322.142 I srv  update_slots: all slots are idle
+4.35.202.161 I srv  update_slots: all slots are idle
+4.35.203.181 I srv  update_slots: all slots are idle
+4.35.420.273 I srv  update_slots: all slots are idle
+4.35.428.696 I srv  update_slots: all slots are idle
+4.36.202.677 I srv  update_slots: all slots are idle
+4.36.204.052 I srv  update_slots: all slots are idle
+4.36.527.160 I srv  update_slots: all slots are idle
+4.36.535.305 I srv  update_slots: all slots are idle
+4.37.202.177 I srv  update_slots: all slots are idle
+4.37.203.265 I srv  update_slots: all slots are idle
+4.37.630.709 I srv  update_slots: all slots are idle
+4.37.639.197 I srv  update_slots: all slots are idle
+4.38.244.932 I srv  update_slots: all slots are idle
+4.38.245.729 I srv  update_slots: all slots are idle
+4.38.741.540 I srv  update_slots: all slots are idle
+4.38.750.286 I srv  update_slots: all slots are idle
+4.39.202.854 I srv  update_slots: all slots are idle
+4.39.204.113 I srv  update_slots: all slots are idle
+4.39.844.663 I srv  update_slots: all slots are idle
+4.39.853.552 I srv  update_slots: all slots are idle
+4.40.202.802 I srv  update_slots: all slots are idle
+4.40.204.136 I srv  update_slots: all slots are idle
+4.40.952.014 I srv  update_slots: all slots are idle
+4.40.960.884 I srv  update_slots: all slots are idle
+4.41.202.997 I srv  update_slots: all slots are idle
+4.41.203.831 I srv  update_slots: all slots are idle
+4.42.052.276 I srv  update_slots: all slots are idle
+4.42.060.720 I srv  update_slots: all slots are idle
+4.42.202.769 I srv  update_slots: all slots are idle
+4.42.204.038 I srv  update_slots: all slots are idle
+4.43.162.335 I srv  update_slots: all slots are idle
+4.43.170.941 I srv  update_slots: all slots are idle
+4.43.202.651 I srv  update_slots: all slots are idle
+4.43.203.463 I srv  update_slots: all slots are idle
+4.44.202.871 I srv  update_slots: all slots are idle
+4.44.204.397 I srv  update_slots: all slots are idle
+4.44.268.009 I srv  update_slots: all slots are idle
+4.44.276.711 I srv  update_slots: all slots are idle
+4.45.203.129 I srv  update_slots: all slots are idle
+4.45.204.153 I srv  update_slots: all slots are idle
+4.45.376.067 I srv  update_slots: all slots are idle
+4.45.384.437 I srv  update_slots: all slots are idle
+4.46.201.870 I srv  update_slots: all slots are idle
+4.46.202.940 I srv  update_slots: all slots are idle
+4.46.480.458 I srv  update_slots: all slots are idle
+4.46.488.966 I srv  update_slots: all slots are idle
+4.47.202.833 I srv  update_slots: all slots are idle
+4.47.205.751 I srv  update_slots: all slots are idle
+4.47.584.765 I srv  update_slots: all slots are idle
+4.47.593.540 I srv  update_slots: all slots are idle
+4.48.249.735 I srv  update_slots: all slots are idle
+4.48.250.760 I srv  update_slots: all slots are idle
+4.48.688.886 I srv  update_slots: all slots are idle
+4.48.697.400 I srv  update_slots: all slots are idle
+4.49.202.302 I srv  update_slots: all slots are idle
+4.49.203.338 I srv  update_slots: all slots are idle
+4.49.795.618 I srv  update_slots: all slots are idle
+4.49.804.077 I srv  update_slots: all slots are idle
+4.50.202.785 I srv  update_slots: all slots are idle
+4.50.203.777 I srv  update_slots: all slots are idle
+4.50.894.823 I srv  update_slots: all slots are idle
+4.50.903.002 I srv  update_slots: all slots are idle
+4.51.202.174 I srv  update_slots: all slots are idle
+4.51.203.248 I srv  update_slots: all slots are idle
+4.51.997.018 I srv  update_slots: all slots are idle
+4.52.005.990 I srv  update_slots: all slots are idle
+4.52.202.752 I srv  update_slots: all slots are idle
+4.52.203.519 I srv  update_slots: all slots are idle
+4.53.101.340 I srv  update_slots: all slots are idle
+4.53.110.211 I srv  update_slots: all slots are idle
+4.53.202.854 I srv  update_slots: all slots are idle
+4.53.204.274 I srv  update_slots: all slots are idle
+4.54.202.659 I srv  update_slots: all slots are idle
+4.54.203.547 I srv  update_slots: all slots are idle
+4.54.208.522 I srv  update_slots: all slots are idle
+4.54.216.610 I srv  update_slots: all slots are idle
+4.55.202.873 I srv  update_slots: all slots are idle
+4.55.203.879 I srv  update_slots: all slots are idle
+4.55.317.907 I srv  update_slots: all slots are idle
+4.55.326.309 I srv  update_slots: all slots are idle
+4.56.203.253 I srv  update_slots: all slots are idle
+4.56.204.389 I srv  update_slots: all slots are idle
+4.56.429.384 I srv  update_slots: all slots are idle
+4.56.437.941 I srv  update_slots: all slots are idle
+4.57.202.778 I srv  update_slots: all slots are idle
+4.57.203.803 I srv  update_slots: all slots are idle
+4.57.542.158 I srv  update_slots: all slots are idle
+4.57.550.728 I srv  update_slots: all slots are idle
+4.58.247.125 I srv  update_slots: all slots are idle
+4.58.248.011 I srv  update_slots: all slots are idle
+4.58.650.305 I srv  update_slots: all slots are idle
+4.58.658.538 I srv  update_slots: all slots are idle
+4.59.202.900 I srv  update_slots: all slots are idle
+4.59.204.029 I srv  update_slots: all slots are idle
+4.59.759.402 I srv  update_slots: all slots are idle
+4.59.767.919 I srv  update_slots: all slots are idle
+5.00.202.882 I srv  update_slots: all slots are idle
+5.00.203.927 I srv  update_slots: all slots are idle
+5.00.866.058 I srv  update_slots: all slots are idle
+5.00.874.494 I srv  update_slots: all slots are idle
+5.01.203.198 I srv  update_slots: all slots are idle
+5.01.204.330 I srv  update_slots: all slots are idle
+5.01.966.343 I srv  update_slots: all slots are idle
+5.01.974.920 I srv  update_slots: all slots are idle
+5.02.202.828 I srv  update_slots: all slots are idle
+5.02.203.815 I srv  update_slots: all slots are idle
+5.03.071.051 I srv  update_slots: all slots are idle
+5.03.079.487 I srv  update_slots: all slots are idle
+5.03.202.981 I srv  update_slots: all slots are idle
+5.03.204.051 I srv  update_slots: all slots are idle
+5.04.169.329 I srv  update_slots: all slots are idle
+5.04.178.216 I srv  update_slots: all slots are idle
+5.04.202.784 I srv  update_slots: all slots are idle
+5.04.203.618 I srv  update_slots: all slots are idle
+5.05.202.919 I srv  update_slots: all slots are idle
+5.05.203.961 I srv  update_slots: all slots are idle

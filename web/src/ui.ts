@@ -1,7 +1,8 @@
 import type { Scene } from "./scene";
-import { Kind, layerCount, type View, type ViewNode } from "./types";
+import { Kind, type View, type ViewNode } from "./types";
 
-const fmtB = (b: number) => b >= 1073741824 ? `${(b / 1073741824).toFixed(1)} GiB` : b >= 1048576 ? `${(b / 1048576).toFixed(0)} MiB` : `${(b / 1024).toFixed(0)} KiB`;
+const dash = "—";
+const fmtB = (b?: number) => b === undefined ? dash : b >= 1073741824 ? `${(b / 1073741824).toFixed(1)} GiB` : b >= 1048576 ? `${(b / 1048576).toFixed(0)} MiB` : `${(b / 1024).toFixed(0)} KiB`;
 
 // Every scalar of a node, flattened, as label -> display string. Labels are the pin keys, so no two
 // rows share one.
@@ -11,19 +12,20 @@ function fields(n: ViewNode): [string, string][] {
     ["device", n.device],
     ["address", n.address],
   ];
-  if (n.mem_total) f.push(
-    ["memory total", fmtB(n.mem_total)],
+  f.push(
+    // a server on the CPU alone holds the machine's memory, which is its total
+    [n.device === "CPU" ? "machine memory" : "memory total", fmtB(n.mem_total)],
     ["weights", fmtB(n.mem_model)],
     ["cache", fmtB(n.mem_context)],
     ["compute", fmtB(n.mem_compute)],
-    ["held", `${((n.mem_model + n.mem_context + n.mem_compute) / n.mem_total * 100).toFixed(0)} %`],
+    ["held", n.mem_total !== undefined && n.mem_total > 0 && n.mem_model !== undefined && n.mem_context !== undefined && n.mem_compute !== undefined ? `${((n.mem_model + n.mem_context + n.mem_compute) / n.mem_total * 100).toFixed(0)} %` : dash],
   );
   // llama.cpp numbers layers from 0; people count from 1, so "1–24 of 36" and "25–36 of 36"
-  if (n.layers && n.n_layer) f.push(["layers", `${n.layers.first + 1}–${n.layers.last + 1} of ${n.n_layer}`]);
-  if (n.server_slot && n.n_ctx) f.push(["context", `${Math.round(n.ctx_fill * 100)} % of ${(n.n_ctx / 1024).toFixed(0)}k held`]);
+  f.push(["layers", n.layers && n.n_layer ? `${n.layers.first + 1}–${n.layers.last + 1} of ${n.n_layer}` : dash]);
+  f.push(["context", n.server_slot && n.n_ctx ? `${Math.round(n.ctx_fill * 100)} % of ${(n.n_ctx / 1024).toFixed(0)}k held` : dash]);
   if (n.kind === Kind.KIND_LLAMA_SERVER) {
-    f.push(["model", n.model_name], ["build", n.build]);
-    f.push(["tokens/s", (n.tokens_per_s ?? 0).toFixed(1)], ["prompt tokens/s", (n.prompt_tokens_per_s ?? 0).toFixed(0)], ["requests", String(n.requests_processing ?? 0)]);
+    f.push(["model", n.model_name], ["engine", n.engine], ["build", n.build]);
+    f.push(["tokens/s", n.tokens_per_s?.toFixed(1) ?? dash], ["prompt tokens/s", n.prompt_tokens_per_s?.toFixed(0) ?? dash], ["requests", n.requests_processing?.toString() ?? dash], ["queued", n.requests_queued?.toString() ?? dash]);
     if (n.slot) f.push(["slot", n.slot.processing ? "processing" : "idle"], ["prompt", `${n.slot.n_processed} / ${n.slot.n_prompt} (${n.slot.n_cached} cached)`]);
   }
   if (n.stale) f.push(["stale", "yes"]);
@@ -112,7 +114,7 @@ export class UI {
     const n = this.last.nodes.find((x) => x.id === this.selected);
     if (!n) { this.select(null); return; }
     const pins = this.pinned(n.id);
-    this.panel.innerHTML = `<button class="close" aria-label="close">×</button><h2>${n.kind === Kind.KIND_RPC ? "rpc node" : n.kind === Kind.KIND_DEVICE ? "device" : "llama-server"} <span>${n.label}</span><small>${n.id}</small></h2>` +
+    this.panel.innerHTML = `<button class="close" aria-label="close">×</button><h2>${n.kind === Kind.KIND_RPC ? "rpc node" : n.kind === Kind.KIND_DEVICE ? "device" : n.engine || "model server"} <span>${n.label}</span><small>${n.id}</small></h2>` +
       fields(n).map(([k, v]) => `<label><input type="checkbox" data-k="${k}" ${pins.has(k) ? "checked" : ""}/> <b>${k}</b><span>${v}</span></label>`).join("") +
       `<p class="hint">tick a field to pin it to the blob</p>`;
     this.panel.querySelectorAll<HTMLInputElement>("input").forEach((cb) => cb.onchange = () => {
@@ -156,15 +158,14 @@ export class UI {
     });
   }
 
-  // Per-layer figures are the node's totals divided by its layer count; llama.cpp reports nothing finer.
   private depthText(): string {
     const d = this.scene.depth();
     if (!d || !this.last) return "";
     const n = this.last.nodes.find((x) => x.id === d.id);
     if (!n) return "";
-    const count = layerCount(n.layers);
-    if (d.core) return `<b>${n.label}</b> · context core · ${fmtB(n.mem_context * n.ctx_fill)} of ${fmtB(n.mem_context)} in use (${Math.round(n.ctx_fill * 100)} % of the window)`;
-    return `<b>${n.label}</b> · layer ${d.layer! + 1} of ${n.n_layer ?? "?"} · ${fmtB(n.mem_model / count)} weights · ${fmtB(n.mem_context / count * n.ctx_fill)} context in use`;
+    if (d.core) return `<b>${n.label}</b> · context core · ${dash} in use (${Math.round(n.ctx_fill * 100)} % of the window)`;
+    const layer = n.layers && d.layer !== null ? String(d.layer + 1) : dash;
+    return `<b>${n.label}</b> · layer ${layer} of ${n.n_layer ?? dash} · ${dash} weights · ${dash} context in use`;
   }
 
   // Entries persist and are updated in place so the hover survives the poll.
@@ -197,9 +198,9 @@ export class UI {
     (el.querySelector("i") as HTMLElement).style.background = colour;
     set(".name", src.model.name || "…");
     set(".host", `${src.host}:${src.id.slice(src.id.lastIndexOf("/") + 1)}${nodes.length > 1 ? ` +${nodes.length - 1} rpc` : ""}`);
-    set(".shape", `${(src.model.n_ctx / 1024).toFixed(0)}k ctx${st?.n_layer ? ` · ${st.n_layer} layers` : ""}${st?.n_expert ? ` · ${st.n_expert_used}/${st.n_expert} experts` : ""}`);
-    const promptTps = server?.prompt_tokens_per_s ?? 0;
-    set(".rate", prefill ? (promptTps > 0 ? `${promptTps.toFixed(0)} prompt tok/s` : "") : tps > 0 ? `${tps.toFixed(1)} tok/s` : "");
+    set(".shape", `${src.model.engine || dash} · ${(src.model.n_ctx / 1024).toFixed(0)}k ctx · ${st?.n_layer || dash} layers${st?.n_expert ? ` · ${st.n_expert_used}/${st.n_expert} experts` : ""}`);
+    const promptTps = server?.prompt_tokens_per_s;
+    set(".rate", prefill ? (promptTps === undefined ? dash : `${promptTps.toFixed(0)} prompt tok/s`) : server?.tokens_per_s === undefined ? dash : `${tps.toFixed(1)} tok/s`);
     const state = src.stale ? "stale" : req;
     set(".req", state ? ` · ${state}` : "");
     return el;
@@ -226,10 +227,10 @@ export class UI {
     } else {
       for (const src of s.sources) { want.add(`src:${src.id}`); this.row(src, s); }
       const tps = s.nodes.reduce((a, n) => a + (n.tokens_per_s ?? 0), 0);
-      const flow = s.links.reduce((a, l) => a + l.bytes_out_per_s + l.bytes_in_per_s, 0);
       const keep = (key: string, label: string, value: string) => { want.add(key); this.cell(key, label, value); };
-      keep("held", "held", `${fmtB(s.totals.mem_held)} across ${s.nodes.length} node${s.nodes.length === 1 ? "" : "s"}`);
-      keep("tps", "tokens/s", tps.toFixed(1));
+      keep("held", "held", s.totals.mem_held === undefined ? dash : `${fmtB(s.totals.mem_held)} across ${s.nodes.length} node${s.nodes.length === 1 ? "" : "s"}`);
+      keep("tps", "tokens/s", s.nodes.some((n) => n.tokens_per_s !== undefined) ? tps.toFixed(1) : dash);
+      const flow = s.totals.link_bytes_per_s;
       keep("link", "link", flow >= 1e6 ? `${(flow / 1e6).toFixed(1)} MB/s` : `${(flow / 1e3).toFixed(0)} KB/s`);
       keep("generated", "generated", s.totals.tokens_predicted.toLocaleString());
     }

@@ -1,4 +1,4 @@
-// Package discover reads the llama-server's process, arguments, log and node names from the host.
+// Package discover reads model-server processes, arguments, logs and node names from the host.
 package discover
 
 import (
@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -14,21 +15,28 @@ import (
 )
 
 type Listener struct {
-	PID  int
-	Port int
+	PID    int
+	Port   int
+	Engine string
 }
 
-// Listeners returns the llama-server processes listening on TCP. lsof truncates the command name to
-// nine characters, so it is matched by prefix.
+const (
+	EngineLlama = "llama.cpp"
+	EngineMLX   = "mlx-vlm"
+)
+
+// Listeners returns the llama-server and mlx_vlm.server processes listening on TCP. lsof truncates the
+// command name to nine characters, so llama-server is matched by prefix; mlx_vlm.server runs as Python and
+// is told apart by its command line.
 func Listeners() ([]Listener, error) {
 	out, err := exec.Command("lsof", "-nP", "-iTCP", "-sTCP:LISTEN", "-F", "pcn").Output()
 	if err != nil {
 		return nil, fmt.Errorf("lsof: %w", err)
 	}
-	return parseListeners(string(out)), nil
+	return parseListeners(string(out), CommandLine), nil
 }
 
-func parseListeners(out string) []Listener {
+func parseListeners(out string, commandLine func(int) (string, error)) []Listener {
 	var res []Listener
 	var pid int
 	var cmd string
@@ -43,7 +51,17 @@ func parseListeners(out string) []Listener {
 		case 'c':
 			cmd = line[1:]
 		case 'n':
-			if !strings.HasPrefix(cmd, "llama-ser") {
+			engine := ""
+			switch {
+			case strings.HasPrefix(cmd, "llama-ser"):
+				engine = EngineLlama
+			case strings.HasPrefix(cmd, "Python"), strings.HasPrefix(cmd, "python"):
+				cl, err := commandLine(pid)
+				if err == nil && strings.Contains(cl, "mlx_vlm.server") {
+					engine = EngineMLX
+				}
+			}
+			if engine == "" {
 				continue
 			}
 			i := strings.LastIndexByte(line, ':')
@@ -54,7 +72,7 @@ func parseListeners(out string) []Listener {
 			if err != nil {
 				continue
 			}
-			res = append(res, Listener{PID: pid, Port: port})
+			res = append(res, Listener{PID: pid, Port: port, Engine: engine})
 		}
 	}
 	return res
@@ -69,9 +87,11 @@ func CommandLine(pid int) (string, error) {
 }
 
 type Args struct {
-	Host   string // the address the server binds; loopback unless --host says otherwise
+	Host   string // the address to dial; loopback unless --host says otherwise
 	APIKey string
 	RPC    []string
+	Model  string
+	Draft  string
 }
 
 // ParseArgs reads the llama-server flags the collector needs from a ps command line. Values are single
@@ -97,9 +117,58 @@ func ParseArgs(cmdline string) Args {
 					a.RPC = append(a.RPC, s)
 				}
 			}
+		case "--model":
+			a.Model = next(i)
+		case "--draft-model":
+			a.Draft = next(i)
 		}
 	}
 	return a
+}
+
+// MLXBuild returns the mlx-vlm distribution version beside the process's mapped mlx package.
+func MLXBuild(pid int) string {
+	out, err := exec.Command("lsof", "-p", strconv.Itoa(pid), "-F", "n").Output()
+	if err != nil {
+		return EngineMLX
+	}
+	return mlxBuild(string(out), filepath.Glob)
+}
+
+func mlxBuild(out string, glob func(string) ([]string, error)) string {
+	for _, line := range strings.Split(out, "\n") {
+		i := strings.Index(line, "/site-packages/mlx/")
+		if i < 0 {
+			continue
+		}
+		dirs, _ := glob(line[1:i] + "/site-packages/mlx_vlm-*.dist-info")
+		if len(dirs) == 0 {
+			return EngineMLX
+		}
+		name := strings.TrimSuffix(filepath.Base(dirs[0]), ".dist-info")
+		if version, ok := strings.CutPrefix(name, "mlx_vlm-"); ok {
+			return EngineMLX + " " + version
+		}
+	}
+	return EngineMLX
+}
+
+// WiredLimit returns the Metal wired-memory limit in bytes, or zero when it is not reported.
+func WiredLimit() int64 {
+	out, err := exec.Command("sysctl", "iogpu.wired_limit_mb").Output()
+	if err != nil {
+		return 0
+	}
+	return parseWiredLimit(string(out))
+}
+
+func parseWiredLimit(out string) int64 {
+	f := strings.Fields(out)
+	if len(f) != 2 {
+		return 0
+	}
+	mib, _ := strconv.ParseInt(f[1], 10, 64)
+	return mib * 1048576
 }
 
 // Stderr is what the process writes stderr to: a path for a file, or a description such as

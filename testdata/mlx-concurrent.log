@@ -1,0 +1,55 @@
+2026-09-30 09:18:49,306 - INFO - Request started: endpoint=/chat/completions model=mlx-community/Qwen3.8-27B-8bit stream=True in_flight=1
+2026-09-30 09:18:49,314 - INFO - Request started: endpoint=/chat/completions model=mlx-community/Qwen3.8-27B-8bit stream=True in_flight=2
+2026-09-30 09:18:49,327 - INFO - Generation queued: request=11245da30 prompt_tokens=4178 max_tokens=4096 images=0 audio=0 videos=0
+2026-09-30 09:18:49,337 - INFO - Generation queued: request=768e78d9a0 prompt_tokens=4177 max_tokens=4096 images=0 audio=0 videos=0
+2026-09-30 09:18:49,358 - INFO - Prefill started: request=11245da30 backend=continuous_batching prompt_tokens=4178 images=0 audio=0 videos=0
+2026-09-30 09:18:49,393 - INFO - Prefill started: request=768e78d9a0 backend=continuous_batching prompt_tokens=4177 images=0 audio=0 videos=0
+2026-09-30 09:19:21,153 - INFO - Prefill progress: request=768e78d9a0 tokens=2047/4177 (49.0%)
+2026-09-30 09:19:21,153 - INFO - Prefill progress: request=11245da30 tokens=2048/4178 (49.0%)
+2026-09-30 09:19:53,609 - INFO - Prefill progress: request=768e78d9a0 tokens=4095/4177 (98.0%)
+2026-09-30 09:19:53,610 - INFO - Prefill progress: request=11245da30 tokens=4096/4178 (98.0%)
+2026-09-30 09:19:54,109 - INFO - Prefill progress: request=768e78d9a0 tokens=4096/4177 (98.1%)
+2026-09-30 09:19:54,109 - INFO - Prefill progress: request=11245da30 tokens=4097/4178 (98.1%)
+2026-09-30 09:19:55,879 - INFO - Prefill progress: request=768e78d9a0 tokens=4176/4177 (100.0%)
+2026-09-30 09:19:55,879 - INFO - Prefill progress: request=11245da30 tokens=4177/4178 (100.0%)
+2026-09-30 09:19:56,050 - INFO - Prefill completed: request=768e78d9a0 prompt_tokens=4177 cached_tokens=0 elapsed=66.572s rate=62.7 tok/s
+2026-09-30 09:19:56,050 - INFO - Prefill completed: request=11245da30 prompt_tokens=4178 cached_tokens=0 elapsed=66.572s rate=62.8 tok/s
+2026-09-30 09:19:56,051 - INFO - Decode started: request=768e78d9a0 time_to_first_token=66.735s
+2026-09-30 09:19:56,051 - INFO - Decode started: request=11245da30 time_to_first_token=66.740s
+2026-09-30 09:19:57,601 - INFO - Decode progress: request=768e78d9a0 generated_tokens=10 elapsed=1.550s rate=3.6 tok/s
+2026-09-30 09:19:57,601 - INFO - Decode progress: request=11245da30 generated_tokens=10 elapsed=1.550s rate=3.6 tok/s
+2026-09-30 09:19:59,059 - INFO - Decode progress: request=768e78d9a0 generated_tokens=20 elapsed=3.008s rate=24590.0 tok/s
+2026-09-30 09:19:59,059 - INFO - Decode progress: request=11245da30 generated_tokens=20 elapsed=3.008s rate=6212.8 tok/s
+2026-09-30 09:20:00,520 - INFO - Decode progress: request=768e78d9a0 generated_tokens=30 elapsed=4.469s rate=3.6 tok/s
+2026-09-30 09:20:00,520 - INFO - Decode progress: request=11245da30 generated_tokens=30 elapsed=4.469s rate=3.6 tok/s
+2026-09-30 09:20:02,256 - INFO - Decode progress: request=768e78d9a0 generated_tokens=40 elapsed=6.205s rate=151883.7 tok/s
+2026-09-30 09:20:02,256 - INFO - Decode progress: request=11245da30 generated_tokens=40 elapsed=6.205s rate=5631.2 tok/s
+2026-09-30 09:20:03,455 - INFO - Decode progress: request=768e78d9a0 generated_tokens=50 elapsed=7.404s rate=3.4 tok/s
+2026-09-30 09:20:03,455 - INFO - Decode progress: request=11245da30 generated_tokens=50 elapsed=7.404s rate=3.4 tok/s
+2026-09-30 09:20:05,198 - INFO - Decode progress: request=768e78d9a0 generated_tokens=60 elapsed=9.147s rate=3.3 tok/s
+2026-09-30 09:20:05,198 - INFO - Decode progress: request=11245da30 generated_tokens=60 elapsed=9.147s rate=3.3 tok/s
+2026-09-30 09:20:06,095 - INFO - Decode progress: request=768e78d9a0 generated_tokens=70 elapsed=10.045s rate=68965.5 tok/s
+2026-09-30 09:20:06,096 - INFO - Decode progress: request=11245da30 generated_tokens=70 elapsed=10.045s rate=6626.2 tok/s
+2026-09-30 09:20:07,567 - INFO - Decode progress: request=768e78d9a0 generated_tokens=80 elapsed=11.516s rate=26201.3 tok/s
+2026-09-30 09:20:07,567 - INFO - Decode progress: request=11245da30 generated_tokens=80 elapsed=11.516s rate=5740.2 tok/s
+2026-09-30 09:20:09,027 - INFO - Decode progress: request=768e78d9a0 generated_tokens=90 elapsed=12.976s rate=3.4 tok/s
+2026-09-30 09:20:09,027 - INFO - Decode progress: request=11245da30 generated_tokens=90 elapsed=12.977s rate=3.4 tok/s
+2026-09-30 09:20:10,815 - INFO - Decode progress: request=768e78d9a0 generated_tokens=100 elapsed=14.765s rate=3.5 tok/s
+2026-09-30 09:20:10,816 - INFO - Decode progress: request=11245da30 generated_tokens=100 elapsed=14.765s rate=3.4 tok/s
+2026-09-30 09:20:12,269 - INFO - Decode progress: request=768e78d9a0 generated_tokens=110 elapsed=16.218s rate=3.6 tok/s
+2026-09-30 09:20:12,269 - INFO - Decode progress: request=11245da30 generated_tokens=110 elapsed=16.218s rate=3.6 tok/s
+2026-09-30 09:20:14,565 - INFO - Decode progress: request=768e78d9a0 generated_tokens=120 elapsed=18.514s rate=3.3 tok/s
+2026-09-30 09:20:14,565 - INFO - Decode progress: request=11245da30 generated_tokens=120 elapsed=18.514s rate=3.3 tok/s
+2026-09-30 09:20:16,276 - INFO - Decode progress: request=768e78d9a0 generated_tokens=130 elapsed=20.225s rate=3.6 tok/s
+2026-09-30 09:20:16,276 - INFO - Decode progress: request=11245da30 generated_tokens=130 elapsed=20.225s rate=3.6 tok/s
+2026-09-30 09:20:18,291 - INFO - Decode progress: request=768e78d9a0 generated_tokens=140 elapsed=22.241s rate=3.4 tok/s
+2026-09-30 09:20:18,292 - INFO - Decode progress: request=11245da30 generated_tokens=140 elapsed=22.241s rate=3.4 tok/s
+2026-09-30 09:20:19,748 - INFO - Decode progress: request=768e78d9a0 generated_tokens=150 elapsed=23.698s rate=100846.9 tok/s
+2026-09-30 09:20:19,749 - INFO - Decode progress: request=11245da30 generated_tokens=150 elapsed=23.698s rate=5279.4 tok/s
+2026-09-30 09:20:21,166 - INFO - Decode completed: request=11245da30 generated_tokens=156 elapsed=25.115s rate=6.2 tok/s finish_reason=stop
+2026-09-30 09:20:21,167 - INFO - Request completed: endpoint=/chat/completions model=mlx-community/Qwen3.8-27B-8bit stream=True backend=continuous_batching prompt_tokens=4178 generated_tokens=156 elapsed=91.862s prefill=62.8 tok/s decode=6.2 tok/s finish_reason=stop in_flight=1
+2026-09-30 09:20:21,549 - INFO - Decode progress: request=768e78d9a0 generated_tokens=160 elapsed=25.498s rate=7.0 tok/s
+2026-09-30 09:20:22,424 - INFO - Decode progress: request=768e78d9a0 generated_tokens=170 elapsed=26.373s rate=94491.5 tok/s
+2026-09-30 09:20:23,520 - INFO - Decode progress: request=768e78d9a0 generated_tokens=180 elapsed=27.469s rate=6.5 tok/s
+2026-09-30 09:20:23,520 - INFO - Decode completed: request=768e78d9a0 generated_tokens=181 elapsed=27.470s rate=6.6 tok/s finish_reason=stop
+2026-09-30 09:20:23,521 - INFO - Request completed: endpoint=/chat/completions model=mlx-community/Qwen3.8-27B-8bit stream=True backend=continuous_batching prompt_tokens=4177 generated_tokens=181 elapsed=94.208s prefill=62.7 tok/s decode=6.6 tok/s finish_reason=stop in_flight=0

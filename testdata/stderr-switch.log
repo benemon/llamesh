@@ -1,0 +1,47 @@
+24.48.267.160 I common_memory_breakdown_print: | memory breakdown [MiB]  | total    free     self   model   context   compute    unaccounted |
+24.48.267.166 I common_memory_breakdown_print: |   - MTL0 (Apple M4 Pro) | 59392 = 23365 + (34488 = 27690 +    5888 +     908) +        1538 |
+24.48.267.167 I common_memory_breakdown_print: |   - Host                |                   1468 =  1288 +       0 +     180                |
+24.48.267.749 I ggml_metal_free: deallocating
+24.48.279.300 I ggml_metal_free: deallocating
+INFO:     Started server process [62280]
+INFO:     Waiting for application startup.
+2026-09-29 21:16:35,356 - INFO - Pre-loading language model: mlx-community/Qwen3.8-27B-8bit
+2026-09-29 21:16:35,363 - INFO - APC disk tier at /Users/benjaminholmes/.cache/mlx-vlm/apc/mlx-community_Qwen3.8-27B-8bit_s4-39dd6ba6 (ns=mlx-community/Qwen3.8-27B-8bit#s4-39dd6ba6, cap=20.0 GB)
+2026-09-29 21:16:35,363 - INFO - APC enabled (block_size=16, num_blocks=2048, hash=fast, disk=True)
+2026-09-29 21:16:35,364 - INFO - Loading model: mlx-community/Qwen3.8-27B-8bit
+2026-09-29 21:16:43,315 - INFO - Model and processor loaded successfully.
+2026-09-29 21:16:43,316 - INFO - Loading speculative drafter (mtp): mlx-community/Qwen3.8-27B-MTP-8bit
+2026-09-29 21:16:43,535 - INFO - Drafter ready; speculative decoding enabled.
+2026-09-29 21:16:43,536 - INFO - APC self-check ok mode=exact schema=v4 layers=64 types=[ArraysCache,ArraysCache,ArraysCache,KVCache,ArraysCache,ArraysCache,ArraysCache,KVCache,ArraysCache,ArraysCache,ArraysCache,KVCache,ArraysCache,ArraysCache,ArraysCache,KVCache,ArraysCache,ArraysCache,ArraysCache,KVCache,ArraysCache,ArraysCache,ArraysCache,KVCache,ArraysCache,ArraysCache,ArraysCache,KVCache,ArraysCache,ArraysCache,ArraysCache,KVCache,ArraysCache,ArraysCache,ArraysCache,KVCache,ArraysCache,ArraysCache,ArraysCache,KVCache,ArraysCache,ArraysCache,ArraysCache,KVCache,ArraysCache,ArraysCache,ArraysCache,KVCache,ArraysCache,ArraysCache,ArraysCache,KVCache,ArraysCache,ArraysCache,ArraysCache,KVCache,ArraysCache,ArraysCache,ArraysCache,KVCache,ArraysCache,ArraysCache,ArraysCache,KVCache] caps=[checkpoint,checkpoint,checkpoint,pageable,checkpoint,checkpoint,checkpoint,pageable,checkpoint,checkpoint,checkpoint,pageable,checkpoint,checkpoint,checkpoint,pageable,checkpoint,checkpoint,checkpoint,pageable,checkpoint,checkpoint,checkpoint,pageable,checkpoint,checkpoint,checkpoint,pageable,checkpoint,checkpoint,checkpoint,pageable,checkpoint,checkpoint,checkpoint,pageable,checkpoint,checkpoint,checkpoint,pageable,checkpoint,checkpoint,checkpoint,pageable,checkpoint,checkpoint,checkpoint,pageable,checkpoint,checkpoint,checkpoint,pageable,checkpoint,checkpoint,checkpoint,pageable,checkpoint,checkpoint,checkpoint,pageable,checkpoint,checkpoint,checkpoint,pageable]
+2026-09-29 21:16:43,536 - INFO - Language model ready, continuous batching enabled.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8896 (Press CTRL+C to quit)
+2026-09-29 21:17:10,715 - INFO - Request started: endpoint=/chat/completions model=mlx-community/Qwen3.8-27B-8bit stream=False in_flight=1
+2026-09-29 21:17:10,716 - INFO - Generation queued: request=1122d7e10 prompt_tokens=26 max_tokens=600 images=0 audio=0 videos=0
+2026-09-29 21:17:10,761 - INFO - Prefill started: request=1122d7e10 backend=continuous_batching prompt_tokens=26 images=0 audio=0 videos=0
+5.50.834.453 I common_memory_breakdown_print: | memory breakdown [MiB]  | total    free     self   model   context   compute    unaccounted |
+5.50.834.460 I common_memory_breakdown_print: |   - MTL0 (Apple M4 Pro) | 59392 = 23026 + (34882 = 27690 +    6337 +     853) +        1483 |
+5.50.834.462 I common_memory_breakdown_print: |   - Host                |                   1388 =  1288 +       0 +     100                |
+5.50.835.162 I ggml_metal_free: deallocating
+5.50.846.840 I ggml_metal_free: deallocating
+INFO:     Started server process [85726]
+INFO:     Waiting for application startup.
+2026-09-30 09:34:20,815 - INFO - Pre-loading language model: mlx-community/Qwen3.8-27B-8bit
+2026-09-30 09:34:20,824 - INFO - APC disk tier at /Users/benjaminholmes/.cache/mlx-vlm/apc/mlx-community_Qwen3.8-27B-8bit_s4-39dd6ba6 (ns=mlx-community/Qwen3.8-27B-8bit#s4-39dd6ba6, cap=20.0 GB)
+2026-09-30 09:34:20,824 - INFO - APC enabled (block_size=16, num_blocks=2048, hash=fast, disk=True)
+2026-09-30 09:34:20,824 - INFO - Loading model: mlx-community/Qwen3.8-27B-8bit
+2026-09-30 09:34:28,396 - INFO - Model and processor loaded successfully.
+2026-09-30 09:34:28,397 - INFO - Loading speculative drafter (mtp): mlx-community/Qwen3.8-27B-MTP-8bit
+2026-09-30 09:34:28,651 - INFO - Drafter ready; speculative decoding enabled.
+2026-09-30 09:34:28,654 - INFO - APC self-check ok mode=exact schema=v4 layers=64 types=[ArraysCache,ArraysCache,ArraysCache,KVCache,ArraysCache,ArraysCache,ArraysCache,KVCache,ArraysCache,ArraysCache,ArraysCache,KVCache,ArraysCache,ArraysCache,ArraysCache,KVCache,ArraysCache,ArraysCache,ArraysCache,KVCache,ArraysCache,ArraysCache,ArraysCache,KVCache,ArraysCache,ArraysCache,ArraysCache,KVCache,ArraysCache,ArraysCache,ArraysCache,KVCache,ArraysCache,ArraysCache,ArraysCache,KVCache,ArraysCache,ArraysCache,ArraysCache,KVCache,ArraysCache,ArraysCache,ArraysCache,KVCache,ArraysCache,ArraysCache,ArraysCache,KVCache,ArraysCache,ArraysCache,ArraysCache,KVCache,ArraysCache,ArraysCache,ArraysCache,KVCache,ArraysCache,ArraysCache,ArraysCache,KVCache,ArraysCache,ArraysCache,ArraysCache,KVCache] caps=[checkpoint,checkpoint,checkpoint,pageable,checkpoint,checkpoint,checkpoint,pageable,checkpoint,checkpoint,checkpoint,pageable,checkpoint,checkpoint,checkpoint,pageable,checkpoint,checkpoint,checkpoint,pageable,checkpoint,checkpoint,checkpoint,pageable,checkpoint,checkpoint,checkpoint,pageable,checkpoint,checkpoint,checkpoint,pageable,checkpoint,checkpoint,checkpoint,pageable,checkpoint,checkpoint,checkpoint,pageable,checkpoint,checkpoint,checkpoint,pageable,checkpoint,checkpoint,checkpoint,pageable,checkpoint,checkpoint,checkpoint,pageable,checkpoint,checkpoint,checkpoint,pageable,checkpoint,checkpoint,checkpoint,pageable,checkpoint,checkpoint,checkpoint,pageable]
+2026-09-30 09:34:28,654 - INFO - Language model ready, continuous batching enabled.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8896 (Press CTRL+C to quit)
+2026-09-30 09:34:32,052 - INFO - Request started: endpoint=/chat/completions model=mlx-community/Qwen3.8-27B-8bit stream=False in_flight=1
+2026-09-30 09:34:32,054 - INFO - Generation queued: request=113cab100 prompt_tokens=84 max_tokens=4096 images=0 audio=0 videos=0
+2026-09-30 09:34:32,099 - INFO - Prefill started: request=113cab100 backend=continuous_batching prompt_tokens=84 images=0 audio=0 videos=0
+2026-09-30 09:34:33,797 - INFO - Prefill progress: request=113cab100 tokens=83/84 (98.8%)
+2026-09-30 09:34:33,933 - INFO - Prefill completed: request=113cab100 prompt_tokens=84 cached_tokens=0 elapsed=1.169s rate=71.9 tok/s
+2026-09-30 09:34:33,933 - INFO - Decode started: request=113cab100 time_to_first_token=1.881s
+2026-09-30 09:34:34,087 - INFO - Decode completed: request=113cab100 generated_tokens=2 elapsed=0.154s rate=6.5 tok/s finish_reason=stop
+2026-09-30 09:34:34,122 - INFO - Request completed: endpoint=/chat/completions model=mlx-community/Qwen3.8-27B-8bit stream=False backend=continuous_batching prompt_tokens=84 generated_tokens=2 elapsed=2.120s prefill=71.9 tok/s decode=13.0 tok/s finish_reason=stop in_flight=0

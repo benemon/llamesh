@@ -1,5 +1,5 @@
-// Command llamesh is a live picture of the llama-servers on a set of hosts. Run it with -collector on each
-// host beside its llama-servers, pointed at one instance run with -server, which serves the page.
+// Command llamesh is a live picture of the model servers on a set of hosts. Run it with -collector on each
+// host beside its servers, pointed at one instance run with -server, which serves the page.
 package main
 
 import (
@@ -23,7 +23,7 @@ func main() {
 	useTLS := flag.Bool("tls", false, "collector: connect to the server over TLS, verified against the system roots")
 	tokenTLS := flag.Bool("token-tls", false, "authenticate TLS with LLAMESH_TOKEN; no certificate files or CA")
 	poll := flag.Duration("poll", time.Second, "collector: how often the live sources are read")
-	target := flag.String("target", "", "collector: watch only the llama-server on this URL's port")
+	target := flag.String("target", "", "collector: watch only the model server on this URL's port")
 	flag.Usage = func() {
 		_, _ = fmt.Fprintf(flag.CommandLine.Output(), "usage: llamesh -server [flags] | llamesh -collector host:port [flags]\n"+
 			"LLAMESH_TOKEN authenticates collectors as a bearer token, or through -token-tls.\n")

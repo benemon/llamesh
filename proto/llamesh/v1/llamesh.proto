@@ -20,7 +20,7 @@ message ReportRequest {
   }
 }
 
-// A llama-server the collector was reporting has exited. The server stops replaying its picture to newly
+// A model server the collector was reporting has exited. The server stops replaying its picture to newly
 // opened pages at once; pages already open show it stale and drop it as they do any quiet picture.
 message Gone {
   string target = 1;
@@ -40,7 +40,7 @@ message Hello {
 message Snapshot {
   double t = 1;
   string source = 2; // hostname of the collector's host
-  string target = 3; // the llama-server's port; with source, the page's key for this picture
+  string target = 3; // the model server's port; with source, the page's key for this picture
   Model model = 4;
   repeated Node nodes = 5;
   repeated Link links = 6;
@@ -53,6 +53,7 @@ message Model {
   int32 n_ctx = 3;
   string build = 4;
   Structure structure = 5;
+  string engine = 6;
 }
 
 message Structure {
@@ -73,16 +74,17 @@ message Node {
   Kind kind = 2;
   string device = 3;
   string label = 4;
-  double mem_total = 5;
-  double mem_model = 6;
-  double mem_context = 7;
-  double mem_compute = 8;
-  Layers layers = 9; // derived from bytes; see loadlog.LayerRanges
+  optional double mem_total = 5;
+  optional double mem_model = 6;
+  optional double mem_context = 7;
+  optional double mem_compute = 8;
+  Layers layers = 9;
   optional double tokens_per_s = 10;
   optional double prompt_tokens_per_s = 11;
   optional int32 requests_processing = 12;
   Slot slot = 13;
   bool stale = 14;
+  optional int32 requests_queued = 15;
 }
 
 // The contiguous range of layers a device holds, first and last inclusive, numbered from 0.
@@ -110,5 +112,5 @@ message Link {
 
 message Totals {
   double tokens_predicted = 1;
-  double mem_held = 2;
+  optional double mem_held = 2;
 }

@@ -44,8 +44,8 @@ fail() { echo "FAIL: $*"; echo "--- collector"; cat "$OUT/collector.log"; exit 1
 [ -n "$frames" ] || fail "no frames on the page's stream"
 grep -q "log the systemd journal" "$OUT/collector.log" || fail "the collector did not read the journal"
 last=$(echo "$frames" | tail -1)
-echo "$last" | jq -e '.nodes[] | select(.kind=="KIND_LLAMA_SERVER") | .device=="CPU" and .mem_model>0 and .mem_total>0 and .layers!=null' >/dev/null || fail "local CPU device: $(echo "$last" | jq -c '.nodes[0]')"
-echo "$last" | jq -e '.nodes[] | select(.kind=="KIND_RPC") | .mem_model>0 and .layers!=null' >/dev/null || fail "rpc node: $(echo "$last" | jq -c '.nodes[1]')"
+echo "$last" | jq -e '.nodes[] | select(.kind=="KIND_LLAMA_SERVER") | .device=="CPU" and .mem_model>0 and .mem_total>0 and .layers==null' >/dev/null || fail "local CPU device: $(echo "$last" | jq -c '.nodes[0]')"
+echo "$last" | jq -e '.nodes[] | select(.kind=="KIND_RPC") | .mem_model>0 and .layers==null' >/dev/null || fail "rpc node: $(echo "$last" | jq -c '.nodes[1]')"
 echo "$last" | jq -e '.links[0].iface=="lo"' >/dev/null || fail "link interface: $(echo "$last" | jq -c '.links')"
 echo "$frames" | jq -e -s 'any(.[]; .links[0].bytes_out_per_s > 0)' >/dev/null || fail "no link traffic during the requests"
 echo "$frames" | jq -e -s 'any(.[]; .nodes[0].tokens_per_s > 0)' >/dev/null || fail "no token rate during the requests"

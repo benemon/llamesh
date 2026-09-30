@@ -173,7 +173,7 @@ func (*ReportRequest_Snapshot) isReportRequest_Body() {}
 
 func (*ReportRequest_Gone) isReportRequest_Body() {}
 
-// A llama-server the collector was reporting has exited. The server stops replaying its picture to newly
+// A model server the collector was reporting has exited. The server stops replaying its picture to newly
 // opened pages at once; pages already open show it stale and drop it as they do any quiet picture.
 type Gone struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -322,7 +322,7 @@ type Snapshot struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	T             float64                `protobuf:"fixed64,1,opt,name=t,proto3" json:"t,omitempty"`
 	Source        string                 `protobuf:"bytes,2,opt,name=source,proto3" json:"source,omitempty"` // hostname of the collector's host
-	Target        string                 `protobuf:"bytes,3,opt,name=target,proto3" json:"target,omitempty"` // the llama-server's port; with source, the page's key for this picture
+	Target        string                 `protobuf:"bytes,3,opt,name=target,proto3" json:"target,omitempty"` // the model server's port; with source, the page's key for this picture
 	Model         *Model                 `protobuf:"bytes,4,opt,name=model,proto3" json:"model,omitempty"`
 	Nodes         []*Node                `protobuf:"bytes,5,rep,name=nodes,proto3" json:"nodes,omitempty"`
 	Links         []*Link                `protobuf:"bytes,6,rep,name=links,proto3" json:"links,omitempty"`
@@ -417,6 +417,7 @@ type Model struct {
 	NCtx          int32                  `protobuf:"varint,3,opt,name=n_ctx,json=nCtx,proto3" json:"n_ctx,omitempty"`
 	Build         string                 `protobuf:"bytes,4,opt,name=build,proto3" json:"build,omitempty"`
 	Structure     *Structure             `protobuf:"bytes,5,opt,name=structure,proto3" json:"structure,omitempty"`
+	Engine        string                 `protobuf:"bytes,6,opt,name=engine,proto3" json:"engine,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -486,6 +487,13 @@ func (x *Model) GetStructure() *Structure {
 	return nil
 }
 
+func (x *Model) GetEngine() string {
+	if x != nil {
+		return x.Engine
+	}
+	return ""
+}
+
 type Structure struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	NLayer        int32                  `protobuf:"varint,1,opt,name=n_layer,json=nLayer,proto3" json:"n_layer,omitempty"`
@@ -552,16 +560,17 @@ type Node struct {
 	Kind               Kind                   `protobuf:"varint,2,opt,name=kind,proto3,enum=llamesh.v1.Kind" json:"kind,omitempty"`
 	Device             string                 `protobuf:"bytes,3,opt,name=device,proto3" json:"device,omitempty"`
 	Label              string                 `protobuf:"bytes,4,opt,name=label,proto3" json:"label,omitempty"`
-	MemTotal           float64                `protobuf:"fixed64,5,opt,name=mem_total,json=memTotal,proto3" json:"mem_total,omitempty"`
-	MemModel           float64                `protobuf:"fixed64,6,opt,name=mem_model,json=memModel,proto3" json:"mem_model,omitempty"`
-	MemContext         float64                `protobuf:"fixed64,7,opt,name=mem_context,json=memContext,proto3" json:"mem_context,omitempty"`
-	MemCompute         float64                `protobuf:"fixed64,8,opt,name=mem_compute,json=memCompute,proto3" json:"mem_compute,omitempty"`
-	Layers             *Layers                `protobuf:"bytes,9,opt,name=layers,proto3" json:"layers,omitempty"` // derived from bytes; see loadlog.LayerRanges
+	MemTotal           *float64               `protobuf:"fixed64,5,opt,name=mem_total,json=memTotal,proto3,oneof" json:"mem_total,omitempty"`
+	MemModel           *float64               `protobuf:"fixed64,6,opt,name=mem_model,json=memModel,proto3,oneof" json:"mem_model,omitempty"`
+	MemContext         *float64               `protobuf:"fixed64,7,opt,name=mem_context,json=memContext,proto3,oneof" json:"mem_context,omitempty"`
+	MemCompute         *float64               `protobuf:"fixed64,8,opt,name=mem_compute,json=memCompute,proto3,oneof" json:"mem_compute,omitempty"`
+	Layers             *Layers                `protobuf:"bytes,9,opt,name=layers,proto3" json:"layers,omitempty"`
 	TokensPerS         *float64               `protobuf:"fixed64,10,opt,name=tokens_per_s,json=tokensPerS,proto3,oneof" json:"tokens_per_s,omitempty"`
 	PromptTokensPerS   *float64               `protobuf:"fixed64,11,opt,name=prompt_tokens_per_s,json=promptTokensPerS,proto3,oneof" json:"prompt_tokens_per_s,omitempty"`
 	RequestsProcessing *int32                 `protobuf:"varint,12,opt,name=requests_processing,json=requestsProcessing,proto3,oneof" json:"requests_processing,omitempty"`
 	Slot               *Slot                  `protobuf:"bytes,13,opt,name=slot,proto3" json:"slot,omitempty"`
 	Stale              bool                   `protobuf:"varint,14,opt,name=stale,proto3" json:"stale,omitempty"`
+	RequestsQueued     *int32                 `protobuf:"varint,15,opt,name=requests_queued,json=requestsQueued,proto3,oneof" json:"requests_queued,omitempty"`
 	unknownFields      protoimpl.UnknownFields
 	sizeCache          protoimpl.SizeCache
 }
@@ -625,29 +634,29 @@ func (x *Node) GetLabel() string {
 }
 
 func (x *Node) GetMemTotal() float64 {
-	if x != nil {
-		return x.MemTotal
+	if x != nil && x.MemTotal != nil {
+		return *x.MemTotal
 	}
 	return 0
 }
 
 func (x *Node) GetMemModel() float64 {
-	if x != nil {
-		return x.MemModel
+	if x != nil && x.MemModel != nil {
+		return *x.MemModel
 	}
 	return 0
 }
 
 func (x *Node) GetMemContext() float64 {
-	if x != nil {
-		return x.MemContext
+	if x != nil && x.MemContext != nil {
+		return *x.MemContext
 	}
 	return 0
 }
 
 func (x *Node) GetMemCompute() float64 {
-	if x != nil {
-		return x.MemCompute
+	if x != nil && x.MemCompute != nil {
+		return *x.MemCompute
 	}
 	return 0
 }
@@ -692,6 +701,13 @@ func (x *Node) GetStale() bool {
 		return x.Stale
 	}
 	return false
+}
+
+func (x *Node) GetRequestsQueued() int32 {
+	if x != nil && x.RequestsQueued != nil {
+		return *x.RequestsQueued
+	}
+	return 0
 }
 
 // The contiguous range of layers a device holds, first and last inclusive, numbered from 0.
@@ -910,7 +926,7 @@ func (x *Link) GetStale() bool {
 type Totals struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	TokensPredicted float64                `protobuf:"fixed64,1,opt,name=tokens_predicted,json=tokensPredicted,proto3" json:"tokens_predicted,omitempty"`
-	MemHeld         float64                `protobuf:"fixed64,2,opt,name=mem_held,json=memHeld,proto3" json:"mem_held,omitempty"`
+	MemHeld         *float64               `protobuf:"fixed64,2,opt,name=mem_held,json=memHeld,proto3,oneof" json:"mem_held,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -953,8 +969,8 @@ func (x *Totals) GetTokensPredicted() float64 {
 }
 
 func (x *Totals) GetMemHeld() float64 {
-	if x != nil {
-		return x.MemHeld
+	if x != nil && x.MemHeld != nil {
+		return *x.MemHeld
 	}
 	return 0
 }
@@ -984,39 +1000,48 @@ const file_llamesh_v1_llamesh_proto_rawDesc = "" +
 	"\x05model\x18\x04 \x01(\v2\x11.llamesh.v1.ModelR\x05model\x12&\n" +
 	"\x05nodes\x18\x05 \x03(\v2\x10.llamesh.v1.NodeR\x05nodes\x12&\n" +
 	"\x05links\x18\x06 \x03(\v2\x10.llamesh.v1.LinkR\x05links\x12*\n" +
-	"\x06totals\x18\a \x01(\v2\x12.llamesh.v1.TotalsR\x06totals\"\x8f\x01\n" +
+	"\x06totals\x18\a \x01(\v2\x12.llamesh.v1.TotalsR\x06totals\"\xa7\x01\n" +
 	"\x05Model\x12\x12\n" +
 	"\x04path\x18\x01 \x01(\tR\x04path\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x13\n" +
 	"\x05n_ctx\x18\x03 \x01(\x05R\x04nCtx\x12\x14\n" +
 	"\x05build\x18\x04 \x01(\tR\x05build\x123\n" +
-	"\tstructure\x18\x05 \x01(\v2\x15.llamesh.v1.StructureR\tstructure\"c\n" +
+	"\tstructure\x18\x05 \x01(\v2\x15.llamesh.v1.StructureR\tstructure\x12\x16\n" +
+	"\x06engine\x18\x06 \x01(\tR\x06engine\"c\n" +
 	"\tStructure\x12\x17\n" +
 	"\an_layer\x18\x01 \x01(\x05R\x06nLayer\x12\x19\n" +
 	"\bn_expert\x18\x02 \x01(\x05R\anExpert\x12\"\n" +
-	"\rn_expert_used\x18\x03 \x01(\x05R\vnExpertUsed\"\xa0\x04\n" +
+	"\rn_expert_used\x18\x03 \x01(\x05R\vnExpertUsed\"\xb2\x05\n" +
 	"\x04Node\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12$\n" +
 	"\x04kind\x18\x02 \x01(\x0e2\x10.llamesh.v1.KindR\x04kind\x12\x16\n" +
 	"\x06device\x18\x03 \x01(\tR\x06device\x12\x14\n" +
-	"\x05label\x18\x04 \x01(\tR\x05label\x12\x1b\n" +
-	"\tmem_total\x18\x05 \x01(\x01R\bmemTotal\x12\x1b\n" +
-	"\tmem_model\x18\x06 \x01(\x01R\bmemModel\x12\x1f\n" +
-	"\vmem_context\x18\a \x01(\x01R\n" +
-	"memContext\x12\x1f\n" +
-	"\vmem_compute\x18\b \x01(\x01R\n" +
-	"memCompute\x12*\n" +
+	"\x05label\x18\x04 \x01(\tR\x05label\x12 \n" +
+	"\tmem_total\x18\x05 \x01(\x01H\x00R\bmemTotal\x88\x01\x01\x12 \n" +
+	"\tmem_model\x18\x06 \x01(\x01H\x01R\bmemModel\x88\x01\x01\x12$\n" +
+	"\vmem_context\x18\a \x01(\x01H\x02R\n" +
+	"memContext\x88\x01\x01\x12$\n" +
+	"\vmem_compute\x18\b \x01(\x01H\x03R\n" +
+	"memCompute\x88\x01\x01\x12*\n" +
 	"\x06layers\x18\t \x01(\v2\x12.llamesh.v1.LayersR\x06layers\x12%\n" +
 	"\ftokens_per_s\x18\n" +
-	" \x01(\x01H\x00R\n" +
+	" \x01(\x01H\x04R\n" +
 	"tokensPerS\x88\x01\x01\x122\n" +
-	"\x13prompt_tokens_per_s\x18\v \x01(\x01H\x01R\x10promptTokensPerS\x88\x01\x01\x124\n" +
-	"\x13requests_processing\x18\f \x01(\x05H\x02R\x12requestsProcessing\x88\x01\x01\x12$\n" +
+	"\x13prompt_tokens_per_s\x18\v \x01(\x01H\x05R\x10promptTokensPerS\x88\x01\x01\x124\n" +
+	"\x13requests_processing\x18\f \x01(\x05H\x06R\x12requestsProcessing\x88\x01\x01\x12$\n" +
 	"\x04slot\x18\r \x01(\v2\x10.llamesh.v1.SlotR\x04slot\x12\x14\n" +
-	"\x05stale\x18\x0e \x01(\bR\x05staleB\x0f\n" +
+	"\x05stale\x18\x0e \x01(\bR\x05stale\x12,\n" +
+	"\x0frequests_queued\x18\x0f \x01(\x05H\aR\x0erequestsQueued\x88\x01\x01B\f\n" +
+	"\n" +
+	"_mem_totalB\f\n" +
+	"\n" +
+	"_mem_modelB\x0e\n" +
+	"\f_mem_contextB\x0e\n" +
+	"\f_mem_computeB\x0f\n" +
 	"\r_tokens_per_sB\x16\n" +
 	"\x14_prompt_tokens_per_sB\x16\n" +
-	"\x14_requests_processing\"2\n" +
+	"\x14_requests_processingB\x12\n" +
+	"\x10_requests_queued\"2\n" +
 	"\x06Layers\x12\x14\n" +
 	"\x05first\x18\x01 \x01(\x05R\x05first\x12\x12\n" +
 	"\x04last\x18\x02 \x01(\x05R\x04last\"\x9a\x01\n" +
@@ -1035,10 +1060,11 @@ const file_llamesh_v1_llamesh_proto_rawDesc = "" +
 	"\x05iface\x18\x03 \x01(\tR\x05iface\x12%\n" +
 	"\x0fbytes_out_per_s\x18\x04 \x01(\x01R\fbytesOutPerS\x12#\n" +
 	"\x0ebytes_in_per_s\x18\x05 \x01(\x01R\vbytesInPerS\x12\x14\n" +
-	"\x05stale\x18\x06 \x01(\bR\x05stale\"N\n" +
+	"\x05stale\x18\x06 \x01(\bR\x05stale\"`\n" +
 	"\x06Totals\x12)\n" +
-	"\x10tokens_predicted\x18\x01 \x01(\x01R\x0ftokensPredicted\x12\x19\n" +
-	"\bmem_held\x18\x02 \x01(\x01R\amemHeld*R\n" +
+	"\x10tokens_predicted\x18\x01 \x01(\x01R\x0ftokensPredicted\x12\x1e\n" +
+	"\bmem_held\x18\x02 \x01(\x01H\x00R\amemHeld\x88\x01\x01B\v\n" +
+	"\t_mem_held*R\n" +
 	"\x04Kind\x12\x14\n" +
 	"\x10KIND_UNSPECIFIED\x10\x00\x12\x15\n" +
 	"\x11KIND_LLAMA_SERVER\x10\x01\x12\f\n" +
@@ -1108,6 +1134,7 @@ func file_llamesh_v1_llamesh_proto_init() {
 		(*ReportRequest_Gone)(nil),
 	}
 	file_llamesh_v1_llamesh_proto_msgTypes[7].OneofWrappers = []any{}
+	file_llamesh_v1_llamesh_proto_msgTypes[11].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

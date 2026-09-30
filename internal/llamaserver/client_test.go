@@ -41,35 +41,36 @@ func TestParseMetrics(t *testing.T) {
 }
 
 func TestParseSlots(t *testing.T) {
-	s, err := ParseSlots(fixture(t, "slots.json"))
+	ss, err := ParseSlots(fixture(t, "slots.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s.NPrompt != 297 || s.Processing {
-		t.Fatalf("got %+v", s)
+	if len(ss) != 1 || ss[0].NPrompt != 297 || ss[0].Processing {
+		t.Fatalf("got %+v", ss)
 	}
 }
 
 func TestParseSlotsDecoded(t *testing.T) {
-	s, err := ParseSlots([]byte(`[{"id":0,"is_processing":true,"id_task":861,"n_ctx":131072,"n_prompt_tokens":697,"n_prompt_tokens_cache":0,"n_prompt_tokens_processed":697,"next_token":[{"has_next_token":true,"n_remain":851,"n_decoded":49}]}]`))
+	ss, err := ParseSlots([]byte(`[{"id":0,"is_processing":true,"id_task":861,"n_ctx":131072,"n_prompt_tokens":697,"n_prompt_tokens_cache":0,"n_prompt_tokens_processed":697,"next_token":[{"has_next_token":true,"n_remain":851,"n_decoded":49}]}]`))
+	s := ss[0]
 	if err != nil || s.ID != 0 || s.Task != 861 || s.NDecoded != 49 || !s.Processing {
 		t.Fatalf("got %+v, %v", s, err)
 	}
 }
 
 func TestParseSlotsPrefillIDs(t *testing.T) {
-	s, err := ParseSlots(fixture(t, "slots-prefill.json"))
+	ss, err := ParseSlots(fixture(t, "slots-prefill.json"))
+	s := ss[0]
 	if err != nil || s.ID != 0 || s.Task != 506 || s.NPrompt != 24125 || s.NProcessed != 22528 {
 		t.Fatalf("got %+v, %v", s, err)
 	}
 }
 
-// A request placed in the fourth of four slots is the one read.
-func TestParseSlotsPicksTheBusySlot(t *testing.T) {
+func TestParseSlotsReadsEverySlot(t *testing.T) {
 	b := []byte(`[{"id":0,"is_processing":false,"n_prompt_tokens":0},{"id":1,"is_processing":false},
 		{"id":2,"is_processing":false},{"id":3,"is_processing":true,"n_prompt_tokens":9,"next_token":[{"n_decoded":40}]}]`)
-	s, err := ParseSlots(b)
-	if err != nil || !s.Processing || s.NPrompt != 9 || s.NDecoded != 40 {
-		t.Fatalf("got %+v %v", s, err)
+	ss, err := ParseSlots(b)
+	if err != nil || len(ss) != 4 || !ss[3].Processing || ss[3].NPrompt != 9 || ss[3].NDecoded != 40 {
+		t.Fatalf("got %+v %v", ss, err)
 	}
 }

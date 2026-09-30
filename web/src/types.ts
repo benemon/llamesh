@@ -17,6 +17,7 @@ export interface ViewNode extends Node {
   n_ctx: number;
   n_layer?: number;
   model_name: string;
+  engine: string;
   build: string;
   ctx_fill: number; // this node's source: prompt plus generated tokens over the context window
   server_slot?: Slot;
@@ -27,5 +28,5 @@ export interface View {
   hosts: { id: string; mem_total: number }[]; // one per machine holding nodes; mem_total is its device's memory
   nodes: ViewNode[];
   links: Link[];
-  totals: { tokens_predicted: number; mem_held: number };
+  totals: { tokens_predicted: number; mem_held?: number; link_bytes_per_s: number };
 }

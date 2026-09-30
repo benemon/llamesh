@@ -10,12 +10,13 @@ const API = new URL("./api/", document.baseURI).toString();
 interface Arrival { snap: Snapshot; at: number }
 
 function compose(snaps: Map<string, Arrival>, now = Date.now()): View {
-  const v: View = { sources: [], hosts: [], nodes: [], links: [], totals: { tokens_predicted: 0, mem_held: 0 } };
-  // the primary, drawn at the centre, is the server holding the most memory
+  const v: View = { sources: [], hosts: [], nodes: [], links: [], totals: { tokens_predicted: 0, link_bytes_per_s: 0 } };
+  // the primary, drawn at the centre, is the server holding the most memory, of what is known
   const live = [...snaps.keys()].filter((k) => now - snaps.get(k)!.at < 30000);
-  const held = (k: string) => snaps.get(k)!.snap.totals?.mem_held ?? 0;
+  const held = (k: string) => snaps.get(k)!.snap.nodes.reduce((a, n) => a + (n.mem_model ?? 0) + (n.mem_context ?? 0) + (n.mem_compute ?? 0), 0);
   const keys = live.sort((a, b) => held(b) - held(a) || a.localeCompare(b));
   let primaryTaken = false;
+  let totalHeld = 0, heldKnown = true;
   const hosts = new Map<string, number>();
   for (const key of keys) {
     const { snap: s, at } = snaps.get(key)!;
@@ -30,17 +31,34 @@ function compose(snaps: Map<string, Arrival>, now = Date.now()): View {
     // A host's envelope is its memory: one server's local devices (several GPUs) add up, while servers
     // sharing a device, and an RPC share of a host, report that device's total again.
     let local = 0;
-    for (const n of s.nodes) if (n.kind !== Kind.KIND_RPC) local += n.mem_total;
+    for (const n of s.nodes) if (n.kind !== Kind.KIND_RPC) local += n.mem_total ?? 0;
     hosts.set(s.source, Math.max(hosts.get(s.source) ?? 0, local));
     for (const n of s.nodes) {
       // an RPC node's label is its host's name; a node that stayed RPC0 is a host of its own
       const host = n.kind !== Kind.KIND_RPC ? s.source : (n.label.startsWith("RPC") ? `${key}/${n.id}` : n.label);
-      if (n.kind === Kind.KIND_RPC) hosts.set(host, Math.max(hosts.get(host) ?? 0, n.mem_total));
-      v.nodes.push({ ...n, id: `${key}/${n.id}`, address: n.id, source: s.source, sourceKey: key, host, primary: primary && n.kind === Kind.KIND_LLAMA_SERVER, n_ctx: s.model.n_ctx, n_layer: s.model.structure?.n_layer, model_name: s.model.name, build: s.model.build, ctx_fill: fill, server_slot: server?.slot, stale: n.stale || quiet });
+      if (n.kind === Kind.KIND_RPC) hosts.set(host, Math.max(hosts.get(host) ?? 0, n.mem_total ?? 0));
+      v.nodes.push({ ...n, id: `${key}/${n.id}`, address: n.id, source: s.source, sourceKey: key, host, primary: primary && n.kind === Kind.KIND_LLAMA_SERVER, n_ctx: s.model.n_ctx, n_layer: s.model.structure?.n_layer, model_name: s.model.name, engine: s.model.engine, build: s.model.build, ctx_fill: fill, server_slot: server?.slot, stale: n.stale || quiet });
     }
-    for (const l of s.links) v.links.push({ ...l, from: `${key}/${l.from}`, to: `${key}/${l.to}` });
     v.totals.tokens_predicted += s.totals.tokens_predicted;
-    v.totals.mem_held += s.totals.mem_held;
+    if (s.totals.mem_held !== undefined) totalHeld += s.totals.mem_held;
+    else heldKnown = false;
+  }
+  if (heldKnown) v.totals.mem_held = totalHeld;
+  // An interface's counters cannot be split between two nodes behind it: its figure counts once in the
+  // total, and each of its links is drawn without a rate of its own.
+  const interfaces = new Map<string, { links: typeof v.links; out: number; inb: number }>();
+  for (const key of keys) {
+    const s = snaps.get(key)!.snap;
+    for (const l of s.links) {
+      const id = l.iface ? `${s.source}/${l.iface}` : `${key}/${l.to}`; // no route found: a link of its own
+      const entry = interfaces.get(id) ?? { links: [], out: l.bytes_out_per_s, inb: l.bytes_in_per_s };
+      entry.links.push({ ...l, from: `${key}/${l.from}`, to: `${key}/${l.to}` });
+      interfaces.set(id, entry);
+    }
+  }
+  for (const entry of interfaces.values()) {
+    v.totals.link_bytes_per_s += entry.out + entry.inb;
+    for (const l of entry.links) v.links.push(entry.links.length === 1 ? l : { ...l, bytes_out_per_s: 0, bytes_in_per_s: 0 });
   }
   v.hosts = [...hosts].map(([id, mem_total]) => ({ id, mem_total }));
   return v;
@@ -108,7 +126,7 @@ function mock(onSnapshot: Listener, onState: StateListener): () => void {
     const snaps = new Map<string, Arrival>();
     snaps.set("orion/8896", { at: now, snap: {
       t: now / 1000, source: "orion", target: "8896",
-      model: { path: "/models/Qwen3.8-27B-Q8_0.gguf", name: "Qwen3.8-27B-Q8_0", n_ctx: 163840, build: "b10566-bb4caa754", structure: { n_layer: 64, n_expert: 0, n_expert_used: 0 } },
+      model: { path: "/models/Qwen3.8-27B-Q8_0.gguf", name: "Qwen3.8-27B-Q8_0", n_ctx: 163840, build: "b10566-bb4caa754", engine: "llama.cpp", structure: { n_layer: 64, n_expert: 0, n_expert_used: 0 } },
       nodes: [
         { ...server, layers: withRPC ? { first: 0, last: 41 } : { first: 0, last: 63 }, tokens_per_s: tps, prompt_tokens_per_s: pps, requests_processing: prefill || gen ? 1 : 0,
           slot: { processing: prefill || gen, n_prompt: 34813 + t * 120, n_cached: 30723, n_processed: prefill ? Math.min(4090, (phase - 5) * 1100) : 4090, n_decoded: gen ? (phase - 9) * 8 : 0 } },
@@ -119,7 +137,7 @@ function mock(onSnapshot: Listener, onState: StateListener): () => void {
     } });
     if (withEmbed) snaps.set("orion/8891", { at: now, snap: {
       t: now / 1000, source: "orion", target: "8891",
-      model: { path: "/models/Qwen3-Embedding-8B-Q8_0.gguf", name: "Qwen3-Embedding-8B-Q8_0", n_ctx: 16384, build: "b10566-bb4caa754", structure: { n_layer: 36, n_expert: 0, n_expert_used: 0 } },
+      model: { path: "/models/Qwen3-Embedding-8B-Q8_0.gguf", name: "Qwen3-Embedding-8B-Q8_0", n_ctx: 16384, build: "b10566-bb4caa754", engine: "llama.cpp", structure: { n_layer: 36, n_expert: 0, n_expert_used: 0 } },
       nodes: [{ ...embed, tokens_per_s: 0, prompt_tokens_per_s: phase % 7 === 0 ? 900 : 0, requests_processing: phase % 7 === 0 ? 1 : 0, slot: { processing: phase % 7 === 0, n_prompt: 412, n_cached: 0, n_processed: 412, n_decoded: 0 } }],
       links: [],
       totals: { tokens_predicted: 0, mem_held: embed.mem_model + embed.mem_context + embed.mem_compute },

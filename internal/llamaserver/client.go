@@ -110,17 +110,16 @@ type Slot struct {
 	NDecoded   int  `json:"n_decoded"` // tokens generated so far in the request in flight
 }
 
-func (c *Client) Slot() (Slot, error) {
+func (c *Client) Slots() ([]Slot, error) {
 	b, err := c.get("/slots")
 	if err != nil {
-		return Slot{}, err
+		return nil, err
 	}
 	return ParseSlots(b)
 }
 
-// ParseSlots reads the slot with a request in flight, the lowest-numbered when several are, or the first
-// when none is: llama-server runs several slots by default and places a request in any of them.
-func ParseSlots(b []byte) (Slot, error) {
+// ParseSlots reads every llama-server slot.
+func ParseSlots(b []byte) ([]Slot, error) {
 	var raw []struct {
 		ID         int             `json:"id"`
 		Task       int             `json:"id_task"`
@@ -131,28 +130,25 @@ func ParseSlots(b []byte) (Slot, error) {
 		NextToken  json.RawMessage `json:"next_token"` // a list of one object in b10566; an object in other builds
 	}
 	if err := json.Unmarshal(b, &raw); err != nil {
-		return Slot{}, err
+		return nil, err
 	}
 	if len(raw) == 0 {
-		return Slot{}, fmt.Errorf("no slots")
+		return nil, fmt.Errorf("no slots")
 	}
-	s := raw[0]
-	for _, r := range raw {
-		if r.Processing {
-			s = r
-			break
-		}
-	}
-	slot := Slot{ID: s.ID, Task: s.Task, Processing: s.Processing, NPrompt: s.NPrompt, NCached: s.NCached, NProcessed: s.NProcessed}
+	out := make([]Slot, 0, len(raw))
 	type nt struct {
 		NDecoded int `json:"n_decoded"`
 	}
-	var list []nt
-	var one nt
-	if json.Unmarshal(s.NextToken, &list) == nil && len(list) > 0 {
-		slot.NDecoded = list[0].NDecoded
-	} else if json.Unmarshal(s.NextToken, &one) == nil {
-		slot.NDecoded = one.NDecoded
+	for _, s := range raw {
+		slot := Slot{ID: s.ID, Task: s.Task, Processing: s.Processing, NPrompt: s.NPrompt, NCached: s.NCached, NProcessed: s.NProcessed}
+		var list []nt
+		var one nt
+		if json.Unmarshal(s.NextToken, &list) == nil && len(list) > 0 {
+			slot.NDecoded = list[0].NDecoded
+		} else if json.Unmarshal(s.NextToken, &one) == nil {
+			slot.NDecoded = one.NDecoded
+		}
+		out = append(out, slot)
 	}
-	return slot, nil
+	return out, nil
 }

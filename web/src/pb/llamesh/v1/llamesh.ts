@@ -25,7 +25,7 @@ export interface ReportRequest {
 }
 
 /**
- * A llama-server the collector was reporting has exited. The server stops replaying its picture to newly
+ * A model server the collector was reporting has exited. The server stops replaying its picture to newly
  * opened pages at once; pages already open show it stale and drop it as they do any quiet picture.
  */
 export interface Gone {
@@ -51,7 +51,7 @@ export interface Snapshot {
   t: number;
   /** hostname of the collector's host */
   source: string;
-  /** the llama-server's port; with source, the page's key for this picture */
+  /** the model server's port; with source, the page's key for this picture */
   target: string;
   model?: Model | undefined;
   nodes: Node[];
@@ -65,6 +65,7 @@ export interface Model {
   n_ctx: number;
   build: string;
   structure?: Structure | undefined;
+  engine: string;
 }
 
 export interface Structure {
@@ -78,17 +79,17 @@ export interface Node {
   kind: Kind;
   device: string;
   label: string;
-  mem_total: number;
-  mem_model: number;
-  mem_context: number;
-  mem_compute: number;
-  /** derived from bytes; see loadlog.LayerRanges */
+  mem_total?: number | undefined;
+  mem_model?: number | undefined;
+  mem_context?: number | undefined;
+  mem_compute?: number | undefined;
   layers?: Layers | undefined;
   tokens_per_s?: number | undefined;
   prompt_tokens_per_s?: number | undefined;
   requests_processing?: number | undefined;
   slot?: Slot | undefined;
   stale: boolean;
+  requests_queued?: number | undefined;
 }
 
 /** The contiguous range of layers a device holds, first and last inclusive, numbered from 0. */
@@ -117,5 +118,5 @@ export interface Link {
 
 export interface Totals {
   tokens_predicted: number;
-  mem_held: number;
+  mem_held?: number | undefined;
 }
