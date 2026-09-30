@@ -156,7 +156,7 @@ func (f *Follower) applyLine(line string) {
 	if err != nil {
 		return
 	}
-	atoi := func(s string) int { n, _ := strconv.Atoi(s); return n }
+	atoi := func(s string) int { n, _ := strconv.ParseInt(s, 10, 32); return int(n) } // token counts, sent as int32
 	if m := queuedLine.FindStringSubmatch(line); m != nil {
 		f.opened++
 		f.requests[m[1]] = Request{ID: m[1], NPrompt: atoi(m[2]), opened: f.opened}
