@@ -6,6 +6,8 @@ import (
 	"io"
 	"log"
 	"net"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -20,11 +22,12 @@ import (
 	"github.com/benemon/llamesh/internal/link"
 	"github.com/benemon/llamesh/internal/llamaserver"
 	"github.com/benemon/llamesh/internal/loadlog"
+	"github.com/benemon/llamesh/internal/mlxserver"
 	pb "github.com/benemon/llamesh/internal/pb/llamesh/v1"
 	"github.com/benemon/llamesh/internal/snapshot"
 )
 
-// collect watches the host's llama-servers and reports them to the server until the process is stopped.
+// collect watches the host's model servers and reports them to the server until the process is stopped.
 // Polling runs whether or not the server is reachable; what was queued while it was not is discarded when
 // it comes back, since the next poll is current.
 func collect(server string, useTLS bool, token string, tokenTLS bool, poll time.Duration, spec string) {
@@ -34,6 +37,7 @@ func collect(server string, useTLS bool, token string, tokenTLS bool, poll time.
 	}
 	local := discover.LocalHostName()
 	hostMem := discover.MemTotal()
+	wiredLimit := discover.WiredLimit()
 	out := make(chan *pb.ReportRequest, 16)
 	go report(server, useTLS, token, tokenTLS, local, out)
 	// Never blocks polling: when the queue is full the oldest entry makes room, so a Gone is not lost.
@@ -62,12 +66,12 @@ func collect(server string, useTLS bool, token string, tokenTLS bool, poll time.
 		for _, t := range cur {
 			// A target is one process: when it exits (a model swap, a crash) its picture goes with it.
 			if cl, err := discover.CommandLine(t.pid); err != nil {
-				log.Printf("target llama-server pid %d (port %d) has gone", t.pid, t.port)
+				log.Printf("target model server pid %d (port %d) has gone", t.pid, t.port)
 				send(&pb.ReportRequest{Body: &pb.ReportRequest_Gone{Gone: &pb.Gone{Target: strconv.Itoa(t.port)}}})
 				continue
-			} else if a := discover.ParseArgs(cl); strings.Join(a.RPC, ",") != strings.Join(t.col.Args.RPC, ",") {
-				t.col.Args = a
-				refreshTopology(t.col, a)
+			} else if a := discover.ParseArgs(cl); t.llama != nil && strings.Join(a.RPC, ",") != strings.Join(t.llama.Args.RPC, ",") {
+				t.llama.Args = a
+				refreshTopology(t.llama, a)
 			}
 			next = append(next, t)
 		}
@@ -79,14 +83,14 @@ func collect(server string, useTLS bool, token string, tokenTLS bool, poll time.
 			if known {
 				continue
 			}
-			if t, err := bind(l, local, hostMem); err == nil {
+			if t, err := bind(l, local, hostMem, wiredLimit); err == nil {
 				next = append(next, t)
 			} else {
 				log.Printf("bind pid %d port %d: %v", l.PID, l.Port, err)
 			}
 		}
 		if len(next) == 0 && (cur == nil || len(cur) > 0) {
-			log.Printf("no llama-server is listening; waiting for one")
+			log.Printf("no model server is listening; waiting for one")
 		}
 		cur = next
 	}
@@ -99,7 +103,7 @@ func collect(server string, useTLS bool, token string, tokenTLS bool, poll time.
 			rescan()
 		}
 		for _, t := range cur {
-			s := t.col.Poll()
+			s := t.poll()
 			s.Target = strconv.Itoa(t.port)
 			send(&pb.ReportRequest{Body: &pb.ReportRequest_Snapshot{Snapshot: s}})
 		}
@@ -192,10 +196,11 @@ func addresses() []string {
 	return out
 }
 
-// target is one llama-server being watched and the collector built from its command line and log.
+// target is one model server being watched.
 type target struct {
 	pid, port int
-	col       *snapshot.Collector
+	poll      func() *pb.Snapshot
+	llama     *snapshot.Collector
 }
 
 // targetPort is the port of -target, or 0 when every llama-server is watched.
@@ -211,7 +216,7 @@ func targetPort(spec string) (int, error) {
 	return p, nil
 }
 
-// listeners is every llama-server listening on the host, or the one on port when it is not 0.
+// listeners is every supported model server listening on the host, or the one on port when it is not 0.
 func listeners(port int) ([]discover.Listener, error) {
 	ls, err := discover.Listeners()
 	if err != nil || port == 0 {
@@ -226,12 +231,15 @@ func listeners(port int) ([]discover.Listener, error) {
 	return out, nil
 }
 
-func bind(l discover.Listener, local string, hostMem int64) (*target, error) {
+func bind(l discover.Listener, local string, hostMem, wiredLimit int64) (*target, error) {
 	cmdline, err := discover.CommandLine(l.PID)
 	if err != nil {
 		return nil, err
 	}
 	args := discover.ParseArgs(cmdline)
+	if l.Engine == discover.EngineMLX {
+		return bindMLX(l, args, local, wiredLimit), nil
+	}
 	col := &snapshot.Collector{
 		Client:  llamaserver.New("http://"+args.Host+":"+strconv.Itoa(l.Port), args.APIKey),
 		Args:    args,
@@ -259,7 +267,47 @@ func bind(l discover.Listener, local string, hostMem int64) (*target, error) {
 	}
 	refreshTopology(col, args)
 	log.Printf("target llama-server pid %d port %d, %d rpc node(s), log %s", l.PID, l.Port, len(args.RPC), stderr)
-	return &target{pid: l.PID, port: l.Port, col: col}, nil
+	return &target{pid: l.PID, port: l.Port, poll: col.Poll, llama: col}, nil
+}
+
+func bindMLX(l discover.Listener, args discover.Args, local string, wiredLimit int64) *target {
+	col := &snapshot.MLXCollector{
+		Client:   mlxserver.New("http://"+dialHost(args.Host)+":"+strconv.Itoa(l.Port), args.APIKey),
+		Build:    discover.MLXBuild(l.PID),
+		Local:    local,
+		MemTotal: wiredLimit,
+	}
+	// The collector runs as the server's user but not under its environment; the cache is where the
+	// Hugging Face defaults put it unless the collector's own environment says otherwise.
+	cache := os.Getenv("HF_HUB_CACHE")
+	if cache == "" && os.Getenv("HF_HOME") != "" {
+		cache = filepath.Join(os.Getenv("HF_HOME"), "hub")
+	}
+	if home, err := os.UserHomeDir(); cache == "" && err == nil {
+		cache = filepath.Join(home, ".cache", "huggingface", "hub")
+	}
+	if model, err := mlxserver.LoadModel(cache, args.Model, args.Draft, os.Stat); err == nil {
+		col.Model = model
+	} else {
+		log.Printf("model %s: %v; its path, structure and weights are unknown", args.Model, err)
+	}
+	stderr, err := discover.Stderr(l.PID)
+	if err != nil {
+		log.Printf("no mlx-vlm log to follow: %v", err)
+	} else if f, err := mlxserver.OpenLog(stderr, l.PID); err == nil {
+		col.Log = f
+	} else {
+		log.Printf("log %s: %v", stderr, err)
+	}
+	log.Printf("target mlx-vlm pid %d port %d, log %s", l.PID, l.Port, stderr)
+	return &target{pid: l.PID, port: l.Port, poll: col.Poll}
+}
+
+func dialHost(host string) string {
+	if host == "" || host == "0.0.0.0" {
+		return "127.0.0.1"
+	}
+	return host
 }
 
 func refreshTopology(col *snapshot.Collector, args discover.Args) {

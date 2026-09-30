@@ -40,17 +40,11 @@ func TestMissingRowIsAbsent(t *testing.T) {
 	}
 }
 
-func TestStructureAndLayers(t *testing.T) {
+func TestStructure(t *testing.T) {
 	b, _ := os.ReadFile("../../testdata/server-lv4.log")
 	s := Parse(string(b))
 	if s.Info.NLayer != 24 || s.Info.NExpert != 32 || s.Info.NExpertUse != 4 {
 		t.Fatalf("structure %+v", s.Info)
-	}
-	// MTL0 11124 MiB and RPC0 5921 MiB of 24 layers: 16 and 8, contiguous, in device order
-	devs := []Device{{Name: "MTL0", Model: 11124 * MiB}, {Name: "RPC0", Model: 5921 * MiB}}
-	r := LayerRanges(devs, s.Info.NLayer)
-	if r[0] != [2]int{0, 15} || r[1] != [2]int{16, 23} {
-		t.Fatalf("ranges %v", r)
 	}
 }
 

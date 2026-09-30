@@ -1,39 +1,39 @@
 # llamesh
 
 This document records what the collector reads, where each figure comes from, and what the page draws
-from it. Everything is verified against llama.cpp b10566 on macOS between 2026-09-24 and 2026-09-27;
-dated figures are observations from that setup.
+from it. The llama.cpp path is verified against b10566 on macOS between 2026-09-24 and 2026-09-30;
+the mlx-vlm path against mlx-vlm 0.7.4 and mlx 0.32.3 on 2026-09-29 and 2026-09-30.
 
 ## Sources
 
-All read on the host running llama-server, by the user the server runs as. Two conditions on the servers:
-they run with `-lv 4`, since the default verbosity omits the memory table, and split models run with
-`--no-mmap` (see Operating notes).
+All are read on the host running the model server, by the user the server runs as. llama-server runs
+with `-lv 4`, since the default verbosity omits its memory table, and split models run with `--no-mmap`
+(see Operating notes).
 
 | Fact | Source | Cadence |
 |---|---|---|
-| model path, name, context size, build | `GET /props` | until it answers; a model swap is a new process |
-| tokens/s, prompt tokens/s, requests processing, tokens generated | request progress lines in the server log and `GET /metrics` (Prometheus text, `llamacpp:*`); the counters move at request end, while the log gives live rates; without metrics there is no generated total | every poll for a log file and metrics |
+| model path, name, context size, build | llama-server: `GET /props`; mlx-vlm: `GET /health`, the Hugging Face snapshot, and the mapped `mlx` package's adjacent `mlx_vlm-*.dist-info` | until health/props answers; load facts are read once per process |
+| tokens/s, prompt tokens/s, requests processing and waiting, tokens generated | request progress lines and `GET /metrics`; llama-server supplies Prometheus `llamacpp:*`, mlx-vlm supplies JSON | every poll |
 | current request: prompt total and live rates | the log's `new prompt`, `prompt processing` and `n_gen` lines, matched to `/slots` by slot and task id | a log file is tailed every poll; unavailable from the journal |
-| current request: cached, processed, generated so far | `GET /slots`; its `n_prompt_tokens` can be either the full prompt or only the tokens processed so far | every poll |
-| the server's bind address, API key and RPC nodes | its command line (`ps -o command= -p PID`: `--host`, `--api-key`, `--rpc host:port,...`); its port from `lsof` | on start and every 10 polls |
+| current request: cached, processed, generated so far | llama-server: every entry from `GET /slots`; mlx-vlm: its stderr request records | every poll |
+| the server's engine, bind address, API key and RPC nodes | listener name plus command line (`ps -o command= -p PID`: `-m mlx_vlm.server`, `--host`, `--api-key`, `--rpc host:port,...`); its port from `lsof` | on start and every 10 polls |
 | each device's total, model, context and compute memory, local and every RPC node | the server's log at `-lv 4`: `common_memory_breakdown_print` prints one row per device after load | a log file is tailed every poll, the journal read every 10 s; the values change only at load |
 | a CPU-only server's model, context and compute memory | the same table's host-memory rows (`Host`, `CPU_REPACK`), which carry no device total | as above |
 | a CPU-only server's total | the machine's RAM: `sysctl -n hw.memsize` on macOS, `/proc/meminfo` on Linux | on start |
-| layers, experts, experts used | `print_info:` lines in the same log | as above |
+| layers, experts, experts used | llama-server: `print_info:`; mlx-vlm: snapshot `config.json` | at load |
+| mlx-vlm device total and weights | `sysctl iogpu.wired_limit_mb`; model and drafter `*.safetensors` sizes | at bind |
 | link bytes | on macOS `netstat -ibn` counters for the interface `route -n get` names for each RPC host; on Linux `/proc/net/dev` for the interface `ip route get` names | every poll |
 
-The memory figures are the server's own. The table lists devices in llama.cpp's device order, RPC
-devices first. The layer range shown for each device is derived. llama.cpp assigns repeating layers
-contiguously in device order in proportion to bytes. It prints no per-layer assignment. The range
-therefore follows from each device's share of the model bytes, in the table's order.
+The memory figures are the server's own. A llama-server with one device holds every layer, so that exact
+range is shown. A split llama-server prints no per-device assignment, so every device's layer range is
+unknown. mlx-vlm runs on one Metal device and its snapshot states the layer count, so it holds every layer.
 
 Every device that is not an RPC device is local: `MTL0`, `CUDA0`, `Vulkan0` and so on. The first is drawn
 as the server; each further one, such as a second GPU, is a node of its own in the same host. A server
 with no local device rows runs on the CPU alone, and its host-memory rows together are its local device,
 `CPU`. On a host with a GPU the host-memory rows are left out, so a partial offload's CPU layers are not
-shown. The link counters
-are the whole interface's; two RPC nodes behind one interface show the same figures.
+shown. Link counters belong to the whole interface. An interface is counted once; when two RPC nodes are
+behind it, neither node-to-node link is assigned those bytes.
 
 The collector does not connect to an RPC node. `ggml-rpc-server` serves one client at a time and keeps a
 connection whose peer vanished without a close, so a probe from the collector could block the server's
@@ -61,10 +61,10 @@ MB back, about 56 KB per prompt token, at 660 tokens/s. The stream animation is 
 
 ## Collector and server
 
-One Go binary runs in either mode. A collector runs on each host with llama-servers. It dials the server
+One Go binary runs in either mode. A collector runs on each host with model servers. It dials the server
 and holds one gRPC stream open, contracted in `proto/llamesh/v1/llamesh.proto`: a `Hello` with the host's
-name, its interface addresses and the build from `git describe`, then a `Snapshot` per llama-server per
-poll, and a `Gone` when a llama-server exits. The stream is bidirectional though the server sends
+name, its interface addresses and the build from `git describe`, then a `Snapshot` per model server per
+poll, and a `Gone` when a model server exits. The stream is bidirectional though the server sends
 nothing, so a collector with nothing to send still learns from its receive side that the server ended the
 stream, refused it, or went away. It then reconnects with backoff from 1 s to 30 s. What was queued while
 the server was unreachable is discarded on reconnecting, and gRPC keepalives on both ends find a peer
@@ -86,12 +86,31 @@ withdraws the rest and its addresses, unless a newer stream from the same collec
 Pages already open drop a withdrawn picture as they drop any quiet one. A page opened later receives the
 latest snapshot of every picture refreshed in the last 30 s.
 
-Target discovery: every `llama-server` process listening on TCP (`lsof -nP -iTCP -sTCP:LISTEN`, by
-command name) is a target, including embedding servers. The listeners are re-read every 10 polls: a
-server that has exited is dropped with its picture; a new one is bound. The process's file descriptor 2
+Target discovery starts with every TCP listener from `lsof -nP -iTCP -sTCP:LISTEN`. A `llama-ser`
+command is llama-server. A Python command is mlx-vlm only when its `ps` command line contains
+`mlx_vlm.server`; other Python listeners are ignored. The listeners are re-read every 10 polls: a server
+that has exited is dropped with its picture; a new one is bound. The process's file descriptor 2
 (`lsof -p PID -a -d 2`, or `/proc/PID/fd/2` where `lsof` does not name it) gives the log the memory table
 is read from. When it is a file, that file is tailed. When it is a socket, as for a service whose output
-systemd sends to the journal, the table is read with `journalctl _PID=PID`. The API key goes in the bearer header and appears in no response or log line.
+systemd sends to the journal, the table is read with `journalctl _PID=PID`. mlx-vlm is macOS-only here,
+and its file is followed from `Started server process [PID]`, not an earlier engine's memory table. An
+absent or wildcard mlx-vlm host is dialled at `127.0.0.1`. The API key goes in the bearer header on every
+engine endpoint and appears in no response or log line.
+
+For mlx-vlm, `Generation queued` opens a request record. Prefill progress supplies processed tokens and
+the rate between progress timestamps; the first rate remains unknown because cached tokens are not known
+until `Prefill completed`. Decode rate is generated-token change over the latest three seconds of progress,
+never the line's spiky `rate=` value. Open request rates are summed and the oldest record supplies `slot`. The file is read before `/metrics`,
+so a record still open when the server then reports none in flight ended without a completion line and
+is dropped. When the target's `Started server process [PID]` is not in the file, it is followed from the
+end, since nothing earlier is known to be the target's.
+For llama-server, every busy `/slots` entry is matched to its log record and rates are summed. Under heavy
+prefill `/slots` can fail to answer a poll while `/metrics` answers; that poll carries the previous poll's
+rates and slot, and a second miss does not. Metrics remain authoritative for processing and waiting counts.
+
+A rate is unknown only when it cannot be stated: the first prefill step, a request decoding before two
+progress lines, or no source answering. A phase no request is in is a known 0, so an idle server shows 0,
+and the poll after requests end shows 0 rather than the counters' jump.
 
 The server's endpoints: `GET /` the page, and `GET /api/stream`, Server-Sent Events carrying every
 collector's snapshots, keyed on the page by `source` and `target`. Each is the protobuf JSON rendering of
@@ -101,16 +120,16 @@ lists arrive as `[]`. Byte counts and rates are doubles in the contract because 
 
 ```json
 {"t": 1790400000.0, "source": "orion", "target": "8896",
- "model": {"path": "...gguf", "name": "gpt-oss-120b-F16", "n_ctx": 131072, "build": "b10566-bb4caa754",
+ "model": {"path": "...gguf", "name": "gpt-oss-120b-F16", "n_ctx": 131072, "build": "b10566-bb4caa754", "engine": "llama.cpp",
            "structure": {"n_layer": 36, "n_expert": 128, "n_expert_used": 4}},
  "nodes": [
    {"id": "local", "kind": "KIND_LLAMA_SERVER", "device": "MTL0", "label": "orion",
     "mem_total": 62277025792, "mem_model": 44000000000, "mem_context": 3600000000, "mem_compute": 400000000,
-    "layers": {"first": 0, "last": 23}, "stale": false, "tokens_per_s": 21.4, "prompt_tokens_per_s": 0, "requests_processing": 1,
+    "stale": false, "tokens_per_s": 21.4, "prompt_tokens_per_s": 0, "requests_processing": 1, "requests_queued": 0,
     "slot": {"processing": true, "n_prompt": 34813, "n_cached": 30723, "n_processed": 4090, "n_decoded": 120}},
    {"id": "10.0.0.2:50052", "kind": "KIND_RPC", "device": "RPC0", "label": "vega",
     "mem_total": 28588376064, "mem_model": 22000000000, "mem_context": 3000000000, "mem_compute": 400000000,
-    "layers": {"first": 24, "last": 35}, "slot": null, "stale": false}
+    "slot": null, "stale": false}
  ],
  "links": [{"from": "local", "to": "10.0.0.2:50052", "iface": "bridge0",
             "bytes_out_per_s": 512000, "bytes_in_per_s": 498000, "stale": false}],
@@ -141,7 +160,8 @@ request; those tokens were counted live, so that frame reports no rate. A poll t
 previous value and sets `"stale": true` on the affected node or link; the server node is stale when
 neither `/metrics` nor `/slots` answers. A node that leaves the `--rpc` list is removed at the next
 rescan. Under heavy prefill the server answers `/slots` slowly and a poll can take several seconds (5 s
-seen); the frame is late.
+seen); the frame is late. Missing rates, memory components, layer ranges and queue counts are left unset.
+`mem_held` is unset if any component is unknown; known zero queue counts remain present.
 
 ## Page
 
@@ -166,8 +186,8 @@ The page is TypeScript, built with Vite and Three.js, and embedded in the binary
   envelope from within. Sizes are volumetric, a 64 GiB body having radius 170.
 - Layout: the primary's host at the centre; other hosts on a sphere around it, azimuth by the golden angle
   and elevation staggered.
-- Camera: orbit, pan and zoom; double-click resets it. Inside a blob, a read-out at the top names the layer
-  being passed, or the core, with that layer's share of the node's weights and context. Past a zoom of 1.8
+- Camera: orbit, pan and zoom; double-click resets it. Inside a blob, a read-out at the top names the exact
+  layer being passed only when its range is known; per-layer weight and context bytes remain unknown. Past a zoom of 1.8
   each blob shows its layer range and context fill as labels without being pinned.
 - Click a blob: a panel with every field of that node from the latest snapshot. Each field has a tick;
   ticked fields render as a label attached to the blob and persist in `localStorage` per node id. Labels
@@ -180,6 +200,8 @@ The page is TypeScript, built with Vite and Three.js, and embedded in the binary
   generated.
 - Theme, top right: dark, light, or the system's choice, remembered per browser.
 - The SSE stream reconnects on drop; the last snapshot stays, greyed, while disconnected.
+- Every unavailable figure is `—`. Memory known in part still sizes the grains; all-unknown memory uses
+  the floor grain and envelope sizes.
 
 ## Not shown
 

@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	pb "github.com/benemon/llamesh/internal/pb/llamesh/v1"
@@ -31,6 +32,21 @@ func TestHubRendersForThePage(t *testing.T) {
 	}
 }
 
+func TestHubOmitsUnknownOptionalFigures(t *testing.T) {
+	h := newHub()
+	zero := int32(0)
+	h.publish(1, &pb.Snapshot{Source: "mini", Target: "8896", Nodes: []*pb.Node{{Id: "local", RequestsQueued: &zero}}, Totals: &pb.Totals{}})
+	got := string(h.latest["mini/8896"].json)
+	for _, field := range []string{"mem_total", "mem_model", "mem_context", "mem_compute", "mem_held"} {
+		if strings.Contains(got, `"`+field+`"`) {
+			t.Fatalf("unknown %s rendered in %s", field, got)
+		}
+	}
+	if !strings.Contains(got, `"requests_queued":0`) {
+		t.Fatalf("known zero queue omitted from %s", got)
+	}
+}
+
 // A collector that reconnects before the server notices its old stream has ended: the old stream's late
 // withdrawal must leave the new stream's picture and addresses alone.
 func TestWithdrawLeavesANewerStreamsReport(t *testing.T) {
@@ -51,5 +67,13 @@ func TestWithdrawLeavesANewerStreamsReport(t *testing.T) {
 	h.withdraw(2)
 	if len(h.latest) != 0 || len(h.hosts) != 0 {
 		t.Fatal("a stream's report must go with it")
+	}
+}
+
+func TestDialHostUsesLoopbackForWildcard(t *testing.T) {
+	for _, host := range []string{"", "0.0.0.0"} {
+		if got := dialHost(host); got != "127.0.0.1" {
+			t.Fatalf("dialHost(%q) = %q", host, got)
+		}
 	}
 }

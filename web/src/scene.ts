@@ -131,7 +131,7 @@ class Blob {
   }
 
   resize(node: ViewNode) {
-    const held = node.mem_model + node.mem_context + node.mem_compute;
+    const held = (node.mem_model ?? 0) + (node.mem_context ?? 0) + (node.mem_compute ?? 0);
     const want = Math.max(400, Math.min(30000, Math.round(held / PARTICLE_BYTES)));
     this.radius = radiusOf(held);
     const count = layerCount(this.layers);
@@ -143,7 +143,7 @@ class Blob {
     this.base.forEach((g, i) => { g.layer = Math.min(count - 1, Math.floor(i * count / want)); });
     this.grains.geometry.setDrawRange(0, want);
     // capacity core radius from the node's context bytes: 1 GiB -> 22 units, volume proportional to bytes
-    this.coreCap = Math.min(this.radius * 0.22, 22 * Math.cbrt(Math.max(node.mem_context, 1) / 1073741824));
+    this.coreCap = node.mem_context === undefined ? this.radius * 0.22 : Math.min(this.radius * 0.22, 22 * Math.cbrt(Math.max(node.mem_context, 1) / 1073741824));
     this.capacity.scale.setScalar(this.coreCap);
     this.halo.scale.set(this.radius * 3.4, this.radius * 3.4, 1);
     this.pick.scale.setScalar(this.radius * 1.1);

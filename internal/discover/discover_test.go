@@ -2,6 +2,7 @@ package discover
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -25,10 +26,34 @@ func TestParseArgsNoRPC(t *testing.T) {
 }
 
 func TestParseListeners(t *testing.T) {
-	out := "p573\ncllama-ser\nn127.0.0.1:8891\np72342\ncllama-ser\nn127.0.0.1:8894\np9\nchaproxy\nn*:8443\n"
-	ls := parseListeners(out)
-	if len(ls) != 2 || ls[0].PID != 573 || ls[0].Port != 8891 || ls[1].Port != 8894 {
+	b, _ := os.ReadFile("../../testdata/lsof-listen-mlx.txt")
+	commands := map[int]string{
+		85726: "/opt/homebrew/Python -m mlx_vlm.server --model mlx-community/Qwen3.8-27B-8bit",
+		1743:  "/Users/benjaminholmes/.unsloth/studio/unsloth_studio/bin/python /Users/benjaminholmes/.unsloth/studio/unsloth_studio/bin/unsloth studio",
+		2210:  "/opt/homebrew/Python -m mlx_vlm.chat_ui --model mlx-community/Qwen3.8-27B-8bit",
+	}
+	ls := parseListeners(string(b), func(pid int) (string, error) { return commands[pid], nil })
+	if len(ls) != 2 || ls[0] != (Listener{PID: 85726, Port: 8896, Engine: EngineMLX}) || ls[1] != (Listener{PID: 573, Port: 8891, Engine: EngineLlama}) {
 		t.Fatalf("got %+v", ls)
+	}
+}
+
+func TestParseMLXArgs(t *testing.T) {
+	b, _ := os.ReadFile("../../testdata/ps-command-mlx.txt")
+	a := ParseArgs(string(b))
+	if a.Host != "127.0.0.1" || a.APIKey != "<redacted>" || a.Model != "mlx-community/Qwen3.8-27B-8bit" || a.Draft != "mlx-community/Qwen3.8-27B-MTP-8bit" {
+		t.Fatalf("got %+v", a)
+	}
+}
+
+func TestMLXBuildFromMappedPackage(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "site-packages", "mlx_vlm-0.7.4.dist-info"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	out := "n" + filepath.Join(dir, "site-packages", "mlx", "core.cpython-314-darwin.so") + "\n"
+	if got := mlxBuild(out, filepath.Glob); got != "mlx-vlm 0.7.4" {
+		t.Fatalf("build %q", got)
 	}
 }
 
@@ -49,5 +74,12 @@ func TestLinuxLookups(t *testing.T) {
 	}
 	if got := secondField("10.0.0.2        vega.example vega\n"); got != "vega.example" {
 		t.Fatalf("getent %q", got)
+	}
+}
+
+func TestWiredLimit(t *testing.T) {
+	b, _ := os.ReadFile("../../testdata/sysctl-wired-limit.txt")
+	if got := parseWiredLimit(string(b)); got != 59392*1048576 {
+		t.Fatalf("wired limit %d", got)
 	}
 }

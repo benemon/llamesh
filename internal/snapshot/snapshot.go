@@ -1,4 +1,4 @@
-// Package snapshot assembles one llama-server's picture: nodes, links and totals, with rates computed from
+// Package snapshot assembles one model server's picture: nodes, links and totals, with rates computed from
 // counter deltas between polls.
 package snapshot
 
@@ -18,21 +18,31 @@ import (
 
 // Collector holds the discovered target and the previous poll's counters.
 type Collector struct {
-	Client        *llamaserver.Client
-	Args          discover.Args
-	Log           loadlog.Source
-	Local         string            // hostname of the machine running llama-server
-	HostMem       int64             // the machine's RAM: the total of a server on the CPU alone
-	Names         map[string]string // RPC node IP -> discovered hostname
-	Ifaces        map[string]string // RPC node address -> interface
-	props         llamaserver.Props
-	lastT         time.Time
-	lastM         map[string]float64
-	lastSlot      llamaserver.Slot
+	Client    *llamaserver.Client
+	Args      discover.Args
+	Log       loadlog.Source
+	Local     string            // hostname of the machine running llama-server
+	HostMem   int64             // the machine's RAM: the total of a server on the CPU alone
+	Names     map[string]string // RPC node IP -> discovered hostname
+	Ifaces    map[string]string // RPC node address -> interface
+	props     llamaserver.Props
+	lastT     time.Time
+	lastM     map[string]float64
+	lastSlots map[int]slotState
+	carried   bool
+	lastLink  map[string]link.Counters
+	last      *pb.Snapshot
+}
+
+type slotState struct {
+	slot          llamaserver.Slot
 	promptElapsed float64
 	promptRate    float64
-	lastLink      map[string]link.Counters
-	last          *pb.Snapshot
+}
+
+func number(v int64) *float64 {
+	n := float64(v)
+	return &n
 }
 
 // Poll reads the live sources once and returns the snapshot. A source that fails keeps its previous
@@ -45,9 +55,9 @@ func (c *Collector) Poll() *pb.Snapshot {
 		}
 	}
 	metrics, merr := c.Client.Metrics() // served only when llama-server runs with --metrics
-	var slot *llamaserver.Slot
-	if sl, err := c.Client.Slot(); err == nil {
-		slot = &sl
+	var slots []llamaserver.Slot
+	if sl, err := c.Client.Slots(); err == nil {
+		slots = sl
 	}
 	counters := map[string]link.Counters{}
 	for addr, iface := range c.Ifaces {
@@ -55,12 +65,12 @@ func (c *Collector) Poll() *pb.Snapshot {
 			counters[addr] = cnt
 		}
 	}
-	s := c.build(metrics, slot, merr != nil && slot == nil, counters)
+	s := c.build(metrics, slots, merr != nil && slots == nil, counters)
 	c.last = s
 	return s
 }
 
-func (c *Collector) build(metrics map[string]float64, slot *llamaserver.Slot, serverStale bool,
+func (c *Collector) build(metrics map[string]float64, slots []llamaserver.Slot, serverStale bool,
 	counters map[string]link.Counters) *pb.Snapshot {
 	now := time.Now()
 	dt := now.Sub(c.lastT).Seconds()
@@ -102,15 +112,19 @@ func (c *Collector) build(metrics map[string]float64, slot *llamaserver.Slot, se
 				NExpert:     int32(split.Info.NExpert),
 				NExpertUsed: int32(split.Info.NExpertUse),
 			},
+			Engine: discover.EngineLlama,
 		},
 		Totals: &pb.Totals{},
 	}
 	layersOf := map[string]*pb.Layers{}
-	for i, r := range loadlog.LayerRanges(ordered, split.Info.NLayer) {
-		layersOf[ordered[i].Name] = &pb.Layers{First: int32(r[0]), Last: int32(r[1])}
+	if len(ordered) == 1 && split.Info.NLayer > 0 {
+		layersOf[ordered[0].Name] = &pb.Layers{First: 0, Last: int32(split.Info.NLayer - 1)}
 	}
 	memOf := func(n *pb.Node, d loadlog.Device) {
-		n.MemTotal, n.MemModel, n.MemContext, n.MemCompute = float64(d.Total), float64(d.Model), float64(d.Context), float64(d.Compute)
+		n.MemTotal, n.MemModel, n.MemContext, n.MemCompute = number(d.Total), number(d.Model), number(d.Context), number(d.Compute)
+		if d.Name == "CPU" && d.Total == 0 {
+			n.MemTotal = nil
+		}
 		n.Layers = layersOf[d.Name]
 	}
 
@@ -119,20 +133,30 @@ func (c *Collector) build(metrics map[string]float64, slot *llamaserver.Slot, se
 		local.Device = locals[0].Name
 		memOf(local, locals[0])
 	}
-	c.rates(local, s, metrics, slot, dt)
+	c.rates(local, s, metrics, slots, dt)
 	local.Stale = serverStale
 	s.Nodes = append(s.Nodes, local)
-	s.Totals.MemHeld = local.MemModel + local.MemContext + local.MemCompute
 	for _, d := range locals[min(1, len(locals)):] {
 		n := &pb.Node{Id: "local/" + d.Name, Kind: pb.Kind_KIND_DEVICE, Device: d.Name, Label: c.Local, Stale: serverStale}
 		memOf(n, d)
 		s.Nodes = append(s.Nodes, n)
-		s.Totals.MemHeld += n.MemModel + n.MemContext + n.MemCompute
 	}
 
 	c.rpcNodes(s, byEndpoint, memOf, counters, dt)
 	if metrics != nil {
 		c.lastM = metrics
+	}
+	var held float64
+	known := true
+	for _, n := range s.Nodes {
+		if n.MemModel == nil || n.MemContext == nil || n.MemCompute == nil {
+			known = false
+			break
+		}
+		held += *n.MemModel + *n.MemContext + *n.MemCompute
+	}
+	if known {
+		s.Totals.MemHeld = &held
 	}
 	if counters != nil {
 		if c.lastLink == nil {
@@ -147,24 +171,24 @@ func (c *Collector) build(metrics map[string]float64, slot *llamaserver.Slot, se
 }
 
 // rates fills the server node's live figures. The metrics give counter rates, requests in flight and
-// tokens generated; the slot gives the request in flight and its live rates. Either may be missing (a
-// server without --metrics has no metrics); with neither, the last poll's figures carry forward.
-func (c *Collector) rates(local *pb.Node, s *pb.Snapshot, metrics map[string]float64, slot *llamaserver.Slot, dt float64) {
-	if metrics == nil && slot == nil {
-		if c.last != nil {
-			for _, n := range c.last.Nodes {
-				if n.Id == "local" {
-					local.TokensPerS, local.PromptTokensPerS = n.TokensPerS, n.PromptTokensPerS
-					local.RequestsProcessing, local.Slot = n.RequestsProcessing, n.Slot
-				}
-			}
-			s.Totals.TokensPredicted = c.last.Totals.TokensPredicted
+// waiting, and tokens generated; the slots give the requests in flight and their live rates, summed over
+// busy slots. A /slots answer that misses one poll (it answers slowly under heavy prefill) carries the
+// previous poll's figures; with neither source, the last poll's figures carry forward.
+func (c *Collector) rates(local *pb.Node, s *pb.Snapshot, metrics map[string]float64, slots []llamaserver.Slot, dt float64) {
+	if slots == nil && (metrics == nil || (!c.carried && c.busy())) {
+		c.restoreRates(local, s)
+		if metrics != nil {
+			applyMetrics(local, s, metrics)
+			c.carried = true
 		}
 		return
 	}
+	if slots != nil {
+		c.carried = false
+	}
 	zero := 0.0
-	local.TokensPerS, local.PromptTokensPerS = &zero, &zero
 	if metrics != nil {
+		applyMetrics(local, s, metrics)
 		rate := func(name string) *float64 {
 			v := 0.0
 			if c.lastM != nil && dt > 0 {
@@ -174,80 +198,151 @@ func (c *Collector) rates(local *pb.Node, s *pb.Snapshot, metrics map[string]flo
 		}
 		local.TokensPerS = rate("llamacpp:tokens_predicted_total")
 		local.PromptTokensPerS = rate("llamacpp:prompt_tokens_total")
-		rp := int32(metrics["llamacpp:requests_processing"])
-		local.RequestsProcessing = &rp
-		s.Totals.TokensPredicted = metrics["llamacpp:tokens_predicted_total"]
 	}
-	if slot == nil {
+	if slots == nil {
 		return
 	}
-	request, fromLog := loadlog.Request{}, false
+	wasBusy := c.busy()
+	prompt, tokens, busy := c.slotRates(slots, dt)
+	switch {
+	case len(busy) > 0:
+		local.PromptTokensPerS, local.TokensPerS = prompt, tokens
+	case wasBusy || metrics == nil:
+		// The requests just finished: their tokens were counted live as they ran, and the counters now
+		// jump by the whole requests at once, which would read as a burst.
+		local.TokensPerS, local.PromptTokensPerS = &zero, &zero
+	}
+	if metrics == nil {
+		rp := int32(len(busy))
+		local.RequestsProcessing = &rp
+	}
+	selected := slots[0]
+	for _, slot := range busy {
+		if !selected.Processing || slot.Task < selected.Task {
+			selected = slot
+		}
+	}
+	nPrompt := selected.NPrompt
 	if c.Log != nil {
-		request, fromLog = c.Log.Request(slot.ID)
-		fromLog = fromLog && request.Task == slot.Task
+		if request, ok := c.Log.Request(selected.ID); ok && request.Task == selected.Task {
+			nPrompt = request.NPrompt
+		}
 	}
-	nPrompt := slot.NPrompt
-	if fromLog {
-		nPrompt = request.NPrompt
+	local.Slot = &pb.Slot{
+		Processing: selected.Processing, NPrompt: int32(nPrompt), NCached: int32(selected.NCached),
+		NProcessed: int32(selected.NProcessed), NDecoded: int32(selected.NDecoded),
 	}
-	// llamacpp's counters advance when a request completes; while one is in flight the log or slot
-	// progress is the live rate.
-	if slot.Processing && dt > 0 {
+}
+
+// slotRates sums the live rates of the busy slots. A phase no busy slot is in is a known 0; a phase
+// with a slot whose rate cannot be stated yet is unknown.
+func (c *Collector) slotRates(slots []llamaserver.Slot, dt float64) (*float64, *float64, []llamaserver.Slot) {
+	var prompt, tokens float64
+	promptCount, promptKnown, tokenCount, tokenKnown := 0, 0, 0, 0
+	var busy []llamaserver.Slot
+	next := map[int]slotState{}
+	for _, slot := range slots {
+		state := c.lastSlots[slot.ID]
+		if !slot.Processing {
+			next[slot.ID] = slotState{slot: slot}
+			continue
+		}
+		busy = append(busy, slot)
+		request, fromLog := loadlog.Request{}, false
+		if c.Log != nil {
+			request, fromLog = c.Log.Request(slot.ID)
+			fromLog = fromLog && request.Task == slot.Task
+		}
+		// llamacpp's counters advance when a request completes; while one is in flight the log or slot
+		// progress is the live rate.
 		if slot.NDecoded == 0 && (!fromLog || request.NGenerated == 0) {
-			local.TokensPerS = &zero
-			c.slotPromptRate(slot, dt)
-			local.PromptTokensPerS = &c.promptRate
+			promptCount++
+			state = promptState(state, slot, dt)
+			rate := state.promptRate
 			// The log prints a chunk's line seconds after /slots shows it, and nothing before the first
 			// chunk ends; until then the slot's own steps give the rate.
 			if fromLog && request.PromptTokensPerS > 0 {
-				local.PromptTokensPerS = &request.PromptTokensPerS
+				rate = request.PromptTokensPerS
+			}
+			if rate > 0 {
+				prompt += rate
+				promptKnown++
 			}
 		} else {
-			c.promptElapsed, c.promptRate = 0, 0
-			prev := c.lastSlot.NDecoded
-			if slot.NDecoded < prev {
-				prev = 0
+			tokenCount++
+			state.promptElapsed, state.promptRate = 0, 0
+			last := state.slot
+			switch {
+			case fromLog && request.NGenerated > 0:
+				tokens += request.TokensPerS
+				tokenKnown++
+			case last.Processing && last.Task == slot.Task && dt > 0:
+				tokens += float64(max(0, slot.NDecoded-last.NDecoded)) / dt
+				tokenKnown++
 			}
-			g := float64(slot.NDecoded-prev) / dt
-			if fromLog && request.NGenerated > 0 {
-				g = request.TokensPerS
-			}
-			if g > 0 || *local.TokensPerS == 0 {
-				local.TokensPerS = &g
-			}
-			local.PromptTokensPerS = &zero
 		}
-	} else if c.lastSlot.Processing {
-		// The request just finished: its tokens were counted live as it ran, and the counters now jump
-		// by the whole request at once, which would read as a burst.
-		local.TokensPerS, local.PromptTokensPerS = &zero, &zero
-		c.promptElapsed, c.promptRate = 0, 0
+		state.slot = slot
+		next[slot.ID] = state
 	}
-	if metrics == nil {
-		rp := int32(0)
-		if slot.Processing {
-			rp = 1
-		}
-		local.RequestsProcessing = &rp
-	}
-	c.lastSlot = *slot
-	local.Slot = &pb.Slot{Processing: slot.Processing, NPrompt: int32(nPrompt), NCached: int32(slot.NCached),
-		NProcessed: int32(slot.NProcessed), NDecoded: int32(slot.NDecoded)}
+	c.lastSlots = next
+	return known(prompt, promptKnown, promptCount), known(tokens, tokenKnown, tokenCount), busy
 }
 
-// slotPromptRate updates the prompt rate from /slots: prefill advances in ubatch chunks, many polls apart,
-// so the rate is the tokens of a step over the time since the previous step, held until the next.
-func (c *Collector) slotPromptRate(slot *llamaserver.Slot, dt float64) {
-	last := c.lastSlot
-	if !last.Processing || last.ID != slot.ID || last.Task != slot.Task || last.NDecoded != 0 {
-		c.promptElapsed, c.promptRate = 0, 0
+func known(sum float64, stated, count int) *float64 {
+	if stated < count {
+		return nil
+	}
+	return &sum
+}
+
+func (c *Collector) busy() bool {
+	for _, st := range c.lastSlots {
+		if st.slot.Processing {
+			return true
+		}
+	}
+	return false
+}
+
+func (c *Collector) restoreRates(local *pb.Node, s *pb.Snapshot) {
+	if c.last == nil {
 		return
 	}
-	c.promptElapsed += dt
-	if slot.NProcessed != last.NProcessed {
-		c.promptRate = float64(slot.NProcessed-last.NProcessed) / c.promptElapsed
-		c.promptElapsed = 0
+	for _, n := range c.last.Nodes {
+		if n.Id == "local" {
+			local.TokensPerS, local.PromptTokensPerS = n.TokensPerS, n.PromptTokensPerS
+			local.RequestsProcessing, local.RequestsQueued, local.Slot = n.RequestsProcessing, n.RequestsQueued, n.Slot
+		}
 	}
+	s.Totals.TokensPredicted = c.last.Totals.TokensPredicted
+}
+
+func applyMetrics(local *pb.Node, s *pb.Snapshot, metrics map[string]float64) {
+	if processing, ok := metrics["llamacpp:requests_processing"]; ok {
+		rp := int32(processing)
+		local.RequestsProcessing = &rp
+	}
+	if queued, ok := metrics["llamacpp:requests_deferred"]; ok {
+		queued := int32(queued)
+		local.RequestsQueued = &queued
+	}
+	s.Totals.TokensPredicted = metrics["llamacpp:tokens_predicted_total"]
+}
+
+// promptState updates a slot's prompt rate from /slots: prefill advances in ubatch chunks, many polls
+// apart, so the rate is the tokens of a step over the time since the previous step, held until the next.
+func promptState(state slotState, slot llamaserver.Slot, dt float64) slotState {
+	last := state.slot
+	if !last.Processing || last.Task != slot.Task || last.NDecoded != 0 {
+		state.promptElapsed, state.promptRate = 0, 0
+		return state
+	}
+	state.promptElapsed += dt
+	if slot.NProcessed != last.NProcessed {
+		state.promptRate = float64(slot.NProcessed-last.NProcessed) / state.promptElapsed
+		state.promptElapsed = 0
+	}
+	return state
 }
 
 // rpcNodes adds a node and a link per RPC address on the command line, in that order.
@@ -269,7 +364,6 @@ func (c *Collector) rpcNodes(s *pb.Snapshot, byEndpoint map[string]loadlog.Devic
 			n.Label = n.Device
 		}
 		s.Nodes = append(s.Nodes, n)
-		s.Totals.MemHeld += n.MemModel + n.MemContext + n.MemCompute
 		l := &pb.Link{From: "local", To: addr, Iface: c.Ifaces[addr]}
 		cnt, ok := counters[addr]
 		if prev, had := c.lastLink[addr]; ok && had && dt > 0 {

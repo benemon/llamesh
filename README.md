@@ -1,11 +1,10 @@
 # llamesh
 
-A llama.cpp model split across machines with the RPC backend gives no view of which layers each device
-holds, how much memory each device has left, or what the link between them carries while a request
-runs. Several models on one machine give no view of how they share it. llamesh draws both from the
-running servers. A collector on each host finds the `llama-server` processes there and reads their
-metrics, their slots and the memory table they print at load. Each collector streams what it reads to
-one server, which serves the page.
+A llama.cpp model split across machines with the RPC backend gives no view of how much memory each
+device has left or what the link between them carries while a request runs. Several models on one
+machine give no view of how they share it. llamesh draws those servers and mlx-vlm servers together.
+A collector on each host finds every `llama-server` and `mlx_vlm.server`, reads what each engine
+exposes, and streams one picture per process to the server that serves the page.
 
 On the page each node of a model is a body of particles sized by the memory it holds, inside a faint
 sphere sized by the memory of the device holding it. Streams of particles between bodies move at the rate
@@ -19,7 +18,7 @@ of the interface counters on the link to each RPC node.
 
 ![two models and an RPC split](docs/multi-model-rpc-link.jpg)
 
-The panel at the top left lists the servers. Rolling over an entry fades everything that is not part of
+The panel at the top left lists the servers and their engines. Rolling over an entry fades everything that is not part of
 that server's picture, and clicking pins the focus. Clicking a body opens its figures, and ticking a
 figure pins it as a label on the body. Zooming into a body passes through one shell per layer to the
 context cache at its core, with a read-out of the layer being passed. The theme toggle at the top right
@@ -33,10 +32,13 @@ the server's address and the shared token; the server needs no list of collector
 - The server and the collector run on macOS and Linux, WSL2 included. The collector needs `lsof`, and on
   Linux `ip`, and `journalctl` for a server run under systemd. CI runs the Linux path end to end on a CPU
   host. GPUs other than Apple's are expected to work the same way but are untested.
+- mlx-vlm collection is supported on Apple silicon. Its Python environment and Hugging Face cache
+  (`HF_HUB_CACHE`, else `HF_HOME/hub`, else `~/.cache/huggingface/hub`, in the collector's environment)
+  must be readable by the collector user; without the cache the model's path, layers and weights are `—`.
 - The GitHub CLI, `gh`, signed in, to download a release and verify its attestation; `cosign` to verify
   its signature.
 - Go 1.26 or later, and Node 20, or 22 or later, to build from source.
-- Servers run with `-lv 4`. llama.cpp prints the per-device memory table only at that verbosity, and
+- llama-servers run with `-lv 4`. llama.cpp prints the per-device memory table only at that verbosity, and
   without it the collector has no memory figures for the bodies.
 - Servers run with `--metrics` for token counters and the total generated; without it the live figures
   come from the slot alone.
@@ -82,7 +84,7 @@ On each host with llama-servers, set the same `LLAMESH_TOKEN` and run a collecto
 ```
 
 `-server` accepts collectors on port 8900 and serves the page on `http://127.0.0.1:8899`. `-collector`
-watches every llama-server on its host and streams to the server at the address given. It reconnects
+watches every supported model server on its host and streams to the server at the address given. It reconnects
 when the server restarts, and it can run on the same host as the server. `LLAMESH_TOKEN` is read from
 the environment so it does not appear in the process list.
 
@@ -93,8 +95,8 @@ the environment so it does not appear in the process list.
 | `-token-tls` | both | | TLS authenticated by `LLAMESH_TOKEN`, with no certificates |
 | `-tls-cert`, `-tls-key` | server | | serve the ingest port over TLS with this certificate |
 | `-tls` | collector | | connect over TLS, verified against the system roots |
-| `-poll` | collector | `1s` | how often `/metrics` and `/slots` are read |
-| `-target` | collector | | watch only the server on this port; the port of the URL is used and the rest ignored |
+| `-poll` | collector | `1s` | how often the engine's live endpoints and log are read |
+| `-target` | collector | | watch only the model server on this port; the port of the URL is used and the rest ignored |
 
 ### Connections
 
@@ -144,18 +146,24 @@ macOS and systemd on Linux.
 
 ## Sources
 
-- `lsof` lists the listening `llama-server` processes. `ps` gives each one's `--host`, `--api-key` and
-  `--rpc` arguments. `lsof` on the process gives its stderr file.
-- `/props` is read until the model has loaded. `/metrics` and `/slots` are read on every poll.
-- The `common_memory_breakdown_print` table in the server's log gives the memory each device holds. The
-  layer range drawn for each device is derived from its share of the model bytes; the log prints no
-  per-layer assignment.
-- Interface counters on the interface that routes to each RPC node give the link rates. Two nodes
-  behind one interface show the same figures.
+- `lsof` lists listeners. `llama-ser` identifies llama-server; a Python listener is accepted only when
+  `ps` contains `mlx_vlm.server`. `ps` also gives `--host`, `--api-key`, model and RPC arguments.
+- llama-server supplies `/props`, `/metrics`, `/slots` and its memory table. mlx-vlm supplies `/health`,
+  `/metrics`, its request log and its Hugging Face snapshots. The bearer token is sent
+  on every call.
+- The `common_memory_breakdown_print` table gives llama.cpp memory. A one-device server has every layer;
+  split-device layer ranges stay unknown because the log prints no assignment. mlx-vlm's one Metal
+  device has every layer from `config.json`; its weights are the model and drafter safetensor sizes.
+- Interface counters on the interface that routes to each RPC node give the link rates. One interface is
+  counted once; its bytes are not assigned to either of two nodes behind it.
 - mDNS gives the RPC nodes' names, with reverse DNS as the fallback.
 
-The collector does not connect to the RPC nodes. `SPEC.md` lists every figure, its source, the
-llama.cpp build each is checked against, and what is not readable.
+The collector does not connect to the RPC nodes. `SPEC.md` lists every figure, its source, the engine
+versions it is checked against, and what is not readable.
+
+Unknown figures are omitted from the snapshot and displayed as `—`, including unavailable memory,
+rates, waiting counts, split-model layer ranges, held percentages and per-layer byte estimates. A known
+zero, such as an idle server's rates, stays 0.
 
 ## Development
 

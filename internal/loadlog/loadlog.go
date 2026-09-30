@@ -111,30 +111,6 @@ func (st *Structure) set(key, val string) {
 	}
 }
 
-// LayerRanges derives which layers each device holds. llama.cpp assigns repeating layers contiguously in
-// device order in proportion to bytes, so the range follows from each device's share of the model
-// bytes; the log at -lv 4 prints no per-layer assignment.
-func LayerRanges(devs []Device, nLayer int) [][2]int {
-	var total int64
-	for _, d := range devs {
-		total += d.Model
-	}
-	out := make([][2]int, len(devs))
-	if total == 0 || nLayer == 0 {
-		return out
-	}
-	next := 0
-	for i, d := range devs {
-		n := int(float64(nLayer)*float64(d.Model)/float64(total) + 0.5)
-		if i == len(devs)-1 || next+n > nLayer {
-			n = nLayer - next
-		}
-		out[i] = [2]int{next, next + n - 1}
-		next += n
-	}
-	return out
-}
-
 // Follower tails a log written by a running llama-server.
 type Follower struct {
 	path     string
